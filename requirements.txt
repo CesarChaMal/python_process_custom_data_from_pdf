@@ -1,0 +1,6 @@
+ollama==0.1.0
+PyMuPDF
+datasets
+tqdm
+huggingface_hub
+python-dotenv
