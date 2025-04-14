@@ -4,3 +4,4 @@ datasets
 tqdm
 huggingface_hub
 python-dotenv
+huggingface_hub
