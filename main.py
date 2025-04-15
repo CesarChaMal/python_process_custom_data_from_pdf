@@ -6,7 +6,7 @@ from datasets import Dataset, DatasetDict
 from tqdm import tqdm
 from huggingface_hub import HfApi, create_repo, delete_repo
 from huggingface_hub.utils import HfHubHTTPError
-
+from datasets import load_from_disk
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -94,7 +94,14 @@ except HfHubHTTPError as e:
     else:
         raise
 
+# Step 4.5: Save dataset to disk locally
+local_dataset_path = "./dataset/jvm_troubleshooting_guide"
+dataset_dict.save_to_disk(local_dataset_path)
+logging.info(f"✅ Dataset saved locally to: {local_dataset_path}")
+
 # Step 5: Push dataset
+# dataset_dict.push_to_hub(app_id)
+dataset = load_from_disk("./dataset/jvm_troubleshooting_guide")
 logging.info(f"Pushing dataset to: {app_id}")
-dataset_dict.push_to_hub(app_id)
+dataset.push_to_hub(app_id)
 print(f"✅ Dataset successfully pushed to: https://huggingface.co/datasets/{app_id}")
