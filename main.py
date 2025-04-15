@@ -52,6 +52,8 @@ logging.info(f"Total segments: {len(sentences)}")
 
 # Step 2: Generate QA pairs using Ollama
 raw_content_for_train = []
+# for sentence in sentences:
+# for i, sentence in enumerate(tqdm(sentences[:100], desc="Generating Q&A", unit="item")):
 for sentence in tqdm(sentences, desc="Generating Q&A"):
     raw_content_for_train.append(prompt_engineered_api(sentence))
 
