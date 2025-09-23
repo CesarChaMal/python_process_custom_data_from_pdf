@@ -30,53 +30,53 @@ def test_jvm_model():
     model_path = "./models/jvm_troubleshooting_model"
     
     if not os.path.exists(model_path):
-        print("❌ Model not found!")
+        print("[ERROR] Model not found!")
         print(f"Expected location: {model_path}")
         print("\nPlease train a model first by running: python main.py")
         return
     
     try:
-        print("🔄 Loading JVM Troubleshooting Model...")
+        print("[INFO] Loading JVM Troubleshooting Model...")
         tokenizer = AutoTokenizer.from_pretrained(model_path)
         model = AutoModelForCausalLM.from_pretrained(model_path)
         model.eval()
-        print("✅ Model loaded successfully!")
+        print("[SUCCESS] Model loaded successfully!")
     except Exception as e:
-        print(f"❌ Failed to load model: {e}")
+        print(f"[ERROR] Failed to load model: {e}")
         return
     
     print("\n" + "="*60)
-    print("🔧 JVM TROUBLESHOOTING ASSISTANT")
+    print("JVM TROUBLESHOOTING ASSISTANT")
     print("="*60)
-    print("\n📋 Available Commands:")
-    print("  • 'quit', 'exit', 'q' - Exit the assistant")
-    print("  • 'help' - Show this help message")  
-    print("  • 'examples' - Show example questions")
-    print("  • 'defaults' - Test with default questions")
-    print("\n💡 Try asking questions about JVM troubleshooting!")
+    print("\nAvailable Commands:")
+    print("  - 'quit', 'exit', 'q' - Exit the assistant")
+    print("  - 'help' - Show this help message")  
+    print("  - 'examples' - Show example questions")
+    print("  - 'defaults' - Test with default questions")
+    print("\nTry asking questions about JVM troubleshooting!")
     
     while True:
-        question = input("\n🔧 Your question: ").strip()
+        question = input("\nYour question: ").strip()
         
         # Handle commands
         if question.lower() in ['quit', 'exit', 'q']:
-            print("\n👋 Goodbye! Thanks for using the JVM Troubleshooting Assistant.")
+            print("\nGoodbye! Thanks for using the JVM Troubleshooting Assistant.")
             break
             
         elif question.lower() == 'help':
-            print("\n📋 HELP")
+            print("\nHELP")
             print("Ask any question about JVM troubleshooting, performance, or debugging.")
             print("Commands: quit, exit, q, help, examples, defaults")
             continue
             
         elif question.lower() == 'examples':
-            print("\n💡 EXAMPLE QUESTIONS:")
+            print("\nEXAMPLE QUESTIONS:")
             for i, q in enumerate(default_questions, 1):
                 print(f"  {i:2d}. {q}")
             continue
             
         elif question.lower() == 'defaults':
-            print("\n🧪 TESTING WITH DEFAULT QUESTIONS:")
+            print("\nTESTING WITH DEFAULT QUESTIONS:")
             print("-" * 50)
             for i, q in enumerate(default_questions[:5], 1):  # Test first 5
                 print(f"\n{i}. Question: {q}")
@@ -91,7 +91,7 @@ def test_jvm_model():
         
         # Generate response for user question
         response = generate_response(model, tokenizer, question)
-        print(f"\n🤖 Assistant: {response}")
+        print(f"\nAssistant: {response}")
 
 def generate_response(model, tokenizer, question):
     """Generate a response for the given question."""

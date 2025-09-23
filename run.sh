@@ -18,7 +18,7 @@
 
 set -e
 
-echo "🚀 Starting PDF to Q&A Dataset Generator..."
+echo "Starting PDF to Q&A Dataset Generator..."
 
 # Check if Python is installed (try multiple variants)
 PYTHON_CMD=""
@@ -29,29 +29,29 @@ elif command -v python3 &> /dev/null && python3 --version &> /dev/null; then
 elif command -v py &> /dev/null && py --version &> /dev/null; then
     PYTHON_CMD="py"
 else
-    echo "❌ Python is not installed or not working. Please install Python 3.8+ first."
+    echo "[ERROR] Python is not installed or not working. Please install Python 3.8+ first."
     exit 1
 fi
 
-echo "🐍 Using Python: $PYTHON_CMD"
+echo "Using Python: $PYTHON_CMD"
 $PYTHON_CMD --version
 
 # Remove broken venv if it exists and recreate
 if [ -d ".venv" ]; then
-    echo "🗑️ Removing existing virtual environment..."
+    echo "Removing existing virtual environment..."
     rm -rf .venv
 fi
 
-echo "📦 Creating virtual environment..."
+echo "Creating virtual environment..."
 $PYTHON_CMD -m venv .venv
 
 if [ ! -d ".venv" ]; then
-    echo "❌ Failed to create virtual environment"
+    echo "[ERROR] Failed to create virtual environment"
     exit 1
 fi
 
 # Activate virtual environment
-echo "🔧 Activating virtual environment..."
+echo "Activating virtual environment..."
 if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
     source .venv/Scripts/activate
 else
@@ -59,17 +59,17 @@ else
 fi
 
 # Install dependencies
-echo "📥 Installing dependencies..."
+echo "Installing dependencies..."
 pip install -r requirements.txt
 
 # Check if .env exists
 if [ ! -f ".env" ]; then
-    echo "⚠️  .env file not found. Please create one with your configuration"
+    echo "[WARNING] .env file not found. Please create one with your configuration"
     echo "You can copy from .env.example and update the values."
 fi
 
 # Interactive configuration
-echo "📋 Configuration Setup"
+echo "Configuration Setup"
 echo "1. Select AI Provider:"
 echo "   1) Ollama (default)"
 echo "   2) OpenAI"
@@ -150,7 +150,7 @@ else
 fi
 
 # Update .env file
-echo "📝 Updating .env configuration..."
+echo "Updating .env configuration..."
 
 # Create or update .env file with proper escaping
 if [ ! -f ".env" ]; then
@@ -180,70 +180,70 @@ echo "BASE_MODEL=$base_model" >> .env.new
 mv .env.new .env
 rm -f .env.tmp .env.tmp2 .env.tmp3 .env.tmp4 .env.tmp5 2>/dev/null || true
 
-echo "🤖 Using AI provider: $AI_PROVIDER"
-echo "🎯 Model: $ai_model"
-echo "📁 Overwrite dataset: $OVERWRITE_DATASET"
-echo "🎨 Train model: $TRAIN_MODEL"
+echo "Using AI provider: $AI_PROVIDER"
+echo "Model: $ai_model"
+echo "Overwrite dataset: $OVERWRITE_DATASET"
+echo "Train model: $TRAIN_MODEL"
 if [ "$TRAIN_MODEL" = "true" ]; then
-    echo "🛠️ Base model: $base_model"
-    echo "⚡ Fine-tuning method: $FINETUNE_METHOD"
+    echo "Base model: $base_model"
+    echo "Fine-tuning method: $FINETUNE_METHOD"
 fi
 
 # Check if PDF exists
 if [ ! -f "jvm_troubleshooting_guide.pdf" ]; then
-    echo "⚠️  PDF file 'jvm_troubleshooting_guide.pdf' not found in current directory"
+    echo "[WARNING] PDF file 'jvm_troubleshooting_guide.pdf' not found in current directory"
     echo "Please place your PDF file with this name to continue."
     exit 1
 fi
 
 # Check AI provider requirements
 if [ "$AI_PROVIDER" = "ollama" ]; then
-    echo "🔍 Checking Ollama connection..."
+    echo "Checking Ollama connection..."
     if ! curl -s http://localhost:11434/api/tags > /dev/null; then
-        echo "❌ Ollama is not running on localhost:11434"
+        echo "[ERROR] Ollama is not running on localhost:11434"
         echo "Please start Ollama first: ollama serve"
         exit 1
     fi
     
-    echo "📋 Checking available models..."
+    echo "Checking available models..."
     if ! curl -s http://localhost:11434/api/tags | grep -q "cesarchamal/qa-expert"; then
-        echo "⚠️  Model 'cesarchamal/qa-expert' not found. Pulling model..."
+        echo "[WARNING] Model 'cesarchamal/qa-expert' not found. Pulling model..."
         ollama pull cesarchamal/qa-expert
     fi
 elif [ "$AI_PROVIDER" = "openai" ]; then
-    echo "🔍 Checking OpenAI configuration..."
+    echo "Checking OpenAI configuration..."
     OPENAI_KEY=$(grep "^OPENAI_API_KEY=" .env 2>/dev/null | cut -d'=' -f2 | tr -d '"')
     if [ -z "$OPENAI_KEY" ] || [ "$OPENAI_KEY" = "your_openai_key_here" ]; then
-        echo "❌ OpenAI API key not configured in .env file"
+        echo "[ERROR] OpenAI API key not configured in .env file"
         echo "Please set OPENAI_API_KEY in your .env file"
         exit 1
     fi
-    echo "✅ OpenAI configuration found"
+    echo "[SUCCESS] OpenAI configuration found"
 else
-    echo "❌ Unsupported AI provider: $AI_PROVIDER"
+    echo "[ERROR] Unsupported AI provider: $AI_PROVIDER"
     echo "Please set AI_PROVIDER to 'ollama' or 'openai' in .env file"
     exit 1
 fi
 
 # Pre-download base model if training is enabled
 if [ "$TRAIN_MODEL" = "true" ]; then
-    echo "📦 Pre-downloading base model: $base_model"
+    echo "Pre-downloading base model: $base_model"
     $PYTHON_CMD -c "from transformers import AutoTokenizer, AutoModelForCausalLM; AutoTokenizer.from_pretrained('$base_model'); AutoModelForCausalLM.from_pretrained('$base_model'); print('[SUCCESS] Base model downloaded')"
 fi
 
-echo "✅ All checks passed. Starting PDF processing..."
+echo "All checks passed. Starting PDF processing..."
 $PYTHON_CMD main.py
 
-echo "🎉 Process completed successfully!"
+echo "Process completed successfully!"
 
 # Check if model exists and offer testing
 if [ -d "./models/jvm_troubleshooting_model" ]; then
     echo ""
     read -p "Do you want to test the trained model? (y/N): " test_model
     if [ "${test_model,,}" = "y" ]; then
-        echo "🧪 Starting model testing..."
+        echo "Starting model testing..."
         $PYTHON_CMD test_model.py
     fi
 elif [ "$TRAIN_MODEL" = "true" ]; then
-    echo "⚠️  Model training was enabled but no model found at ./models/jvm_troubleshooting_model"
+    echo "[WARNING] Model training was enabled but no model found at ./models/jvm_troubleshooting_model"
 fi
