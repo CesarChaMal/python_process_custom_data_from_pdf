@@ -1,0 +1,11 @@
+ollama==0.1.0
+openai
+PyMuPDF
+datasets
+tqdm
+huggingface_hub
+python-dotenv
+transformers
+torch
+accelerate
+peft

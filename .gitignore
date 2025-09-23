@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+*.pdf
+.env
+
+# Large model files (use Hugging Face Hub instead)
+models/*/model.safetensors
+models/*/pytorch_model.bin
+models/*/optimizer.pt
+models/*/scheduler.pt
+models/*/rng_state.pth
+models/*/training_args.bin
+models/*/checkpoint-*/model.safetensors
+models/*/checkpoint-*/pytorch_model.bin
+models/*/checkpoint-*/optimizer.pt
+models/*/checkpoint-*/scheduler.pt
+models/*/checkpoint-*/rng_state.pth
+models/*/checkpoint-*/training_args.bin
+
+# Dataset cache
+dataset/
