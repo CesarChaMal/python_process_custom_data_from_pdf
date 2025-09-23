@@ -246,7 +246,8 @@ def train_and_upload_model(dataset_dict, auth_token, username):
         print("[SUCCESS] Training completed!")
     except Exception as e:
         print(f"[ERROR] Training failed: {e}")
-        print("[INFO] This might be due to memory constraints. Try reducing batch size or using full fine-tuning.")
+        print("[INFO] This might be due to memory constraints. Try reducing batch size or using LoRA fine-tuning.")
+        returnht be due to memory constraints. Try reducing batch size or using full fine-tuning.")
         return
     
     # Save model locally
@@ -286,6 +287,49 @@ def train_and_upload_model(dataset_dict, auth_token, username):
             model.push_to_hub(model_id, token=auth_token)
         tokenizer.push_to_hub(model_id, token=auth_token)
         print(f"[SUCCESS] Model uploaded to: https://huggingface.co/{model_id}")
+        
+        # Generate and upload model card
+        try:
+            from create_model_card import generate_and_upload_model_card
+            
+            # Get training details
+            ai_provider = os.getenv('AI_PROVIDER', 'ollama')
+            train_size = len(dataset_dict['train'])
+            test_size = len(dataset_dict['test'])
+            
+            # Model size mapping
+            model_sizes = {
+                'microsoft/DialoGPT-small': '117M',
+                'microsoft/DialoGPT-medium': '345M', 
+                'microsoft/DialoGPT-large': '762M',
+                'distilgpt2': '82M',
+                'gpt2': '124M'
+            }
+            model_size = model_sizes.get(base_model, '117M')
+            
+            # Training hyperparameters
+            lr = training_args.learning_rate
+            batch_size = training_args.per_device_train_batch_size
+            epochs = training_args.num_train_epochs
+            warmup = training_args.warmup_steps
+            
+            generate_and_upload_model_card(
+                model_id=model_id,
+                auth_token=auth_token,
+                base_model=base_model,
+                finetune_method=finetune_method,
+                ai_provider=ai_provider,
+                train_size=train_size,
+                test_size=test_size,
+                learning_rate=str(lr),
+                batch_size=batch_size,
+                num_epochs=int(epochs),
+                warmup_steps=warmup,
+                model_size=model_size
+            )
+        except Exception as card_error:
+            print(f"[WARNING] Failed to upload model card: {card_error}")
+            
     except Exception as e:
         print(f"[ERROR] Failed to upload model: {e}")
     
