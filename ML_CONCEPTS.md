@@ -243,7 +243,19 @@ Test model on unseen examples → Measure performance → Save if good
 ### Intermediate Resources
 - **Hugging Face Course**: Transformers and NLP
 - **Papers With Code**: Latest research and implementations
-- **Towards Data Science**: Medium publication with ML articles
+- **Towards Data Science**: Medium publication with ML articlesion with ML articles
+
+### Video Tutorial Series Used in This Project
+
+This project was inspired by a comprehensive "Beginner's Guide to DS, ML, and AI" video series that demonstrates the complete ML pipeline from PDF processing to model deployment. Watch in order:
+
+**Part 1**: **[Beginner's Guide to DS, ML, and AI - [1] Process Your Own PDF Doc into LLM Finetune-Ready Format](https://www.youtube.com/watch?v=hr2kSC1evQM)** - Learn how to extract and process PDF documents into training-ready datasets
+
+**Part 2**: **[Beginner's Guide to DS, ML, and AI - [2] Fine-tune Llama2-7b LLM Using Custom Data](https://www.youtube.com/watch?v=tDkY2gpvylE)** - Complete walkthrough of fine-tuning large language models with your custom dataset
+
+**Part 3**: **[Beginner's Guide to DS, ML, and AI - [3] Deploy Inference Endpoint on HuggingFace](https://www.youtube.com/watch?v=382yy-mCeCA)** - Deploy your trained model to production using Hugging Face inference endpoints
+
+**Source Repository**: [WYNAssociates GitHub](https://github.com/CesarChaMal/WYNAssociates/tree/main) - Contains the complete code examples and implementations demonstrated throughout the video seriesion with ML articles
 
 ### Advanced Resources
 - **Attention Is All You Need**: Original Transformer paper (Vaswani et al., 2017)

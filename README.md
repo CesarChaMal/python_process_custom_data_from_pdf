@@ -293,3 +293,27 @@ python test_model.py
 - **Model generates poor responses**: Try retraining with more data or different parameters
 - **Model testing fails**: Ensure model exists in `./models/jvm_troubleshooting_model/`
 - **Git push failures**: Large model files are now excluded via .gitignore
+
+## References
+
+### Video Tutorial Series
+
+This project was inspired by the "Beginner's Guide to DS, ML, and AI" video series. Watch in order:
+
+**Part 1**: **[Beginner's Guide to DS, ML, and AI - [1] Process Your Own PDF Doc into LLM Finetune-Ready Format](https://www.youtube.com/watch?v=hr2kSC1evQM)** - Learn how to extract and process PDF documents into training-ready datasets
+
+**Part 2**: **[Beginner's Guide to DS, ML, and AI - [2] Fine-tune Llama2-7b LLM Using Custom Data](https://www.youtube.com/watch?v=tDkY2gpvylE)** - Complete walkthrough of fine-tuning large language models with your custom dataset
+
+**Part 3**: **[Beginner's Guide to DS, ML, and AI - [3] Deploy Inference Endpoint on HuggingFace](https://www.youtube.com/watch?v=382yy-mCeCA)** - Deploy your trained model to production using Hugging Face inference endpoints
+
+**Source Repository**: [WYNAssociates GitHub](https://github.com/CesarChaMal/WYNAssociates/tree/main) - Contains the complete code examples and implementations demonstrated throughout the video series
+
+### Additional Resources
+
+- **[ML_CONCEPTS.md](ML_CONCEPTS.md)**: Comprehensive guide to machine learning concepts for beginners
+- **Hugging Face Transformers**: Official documentation and tutorials
+- **PyMuPDF Documentation**: PDF processing and text extraction
+- **Ollama Documentation**: Local LLM deployment and usagee Hub for model storage (local models excluded from Git)
+- **Model generates poor responses**: Try retraining with more data or different parameters
+- **Model testing fails**: Ensure model exists in `./models/jvm_troubleshooting_model/`
+- **Git push failures**: Large model files are now excluded via .gitignore
