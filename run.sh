@@ -151,12 +151,34 @@ fi
 
 # Update .env file
 echo "📝 Updating .env configuration..."
-sed -i "s/^AI_PROVIDER=.*/AI_PROVIDER=$AI_PROVIDER/" .env
-sed -i "s/^AI_MODEL=.*/AI_MODEL=$ai_model/" .env
-sed -i "s/^OVERWRITE_DATASET=.*/OVERWRITE_DATASET=$OVERWRITE_DATASET/" .env
-sed -i "s/^TRAIN_MODEL=.*/TRAIN_MODEL=$TRAIN_MODEL/" .env
-sed -i "s/^FINETUNE_METHOD=.*/FINETUNE_METHOD=$FINETUNE_METHOD/" .env
-sed -i "s|^BASE_MODEL=.*|BASE_MODEL=$base_model|" .env
+
+# Create or update .env file with proper escaping
+if [ ! -f ".env" ]; then
+    touch .env
+fi
+
+# Remove existing entries and add new ones
+grep -v "^AI_PROVIDER=" .env > .env.tmp 2>/dev/null || touch .env.tmp
+echo "AI_PROVIDER=$AI_PROVIDER" >> .env.tmp
+
+grep -v "^AI_MODEL=" .env.tmp > .env.tmp2 2>/dev/null || touch .env.tmp2
+echo "AI_MODEL=$ai_model" >> .env.tmp2
+
+grep -v "^OVERWRITE_DATASET=" .env.tmp2 > .env.tmp3 2>/dev/null || touch .env.tmp3
+echo "OVERWRITE_DATASET=$OVERWRITE_DATASET" >> .env.tmp3
+
+grep -v "^TRAIN_MODEL=" .env.tmp3 > .env.tmp4 2>/dev/null || touch .env.tmp4
+echo "TRAIN_MODEL=$TRAIN_MODEL" >> .env.tmp4
+
+grep -v "^FINETUNE_METHOD=" .env.tmp4 > .env.tmp5 2>/dev/null || touch .env.tmp5
+echo "FINETUNE_METHOD=$FINETUNE_METHOD" >> .env.tmp5
+
+grep -v "^BASE_MODEL=" .env.tmp5 > .env.new 2>/dev/null || touch .env.new
+echo "BASE_MODEL=$base_model" >> .env.new
+
+# Replace original .env file
+mv .env.new .env
+rm -f .env.tmp .env.tmp2 .env.tmp3 .env.tmp4 .env.tmp5 2>/dev/null || true
 
 echo "🤖 Using AI provider: $AI_PROVIDER"
 echo "🎯 Model: $ai_model"
