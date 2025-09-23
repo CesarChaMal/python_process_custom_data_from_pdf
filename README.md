@@ -209,6 +209,9 @@ python test_model.py
 
 # Quick batch test
 python quick_test.py
+
+# Recover missing model
+python model_utils.py recover
 ```
 
 ## Available Base Models
@@ -253,6 +256,10 @@ python test_model.py
 ```bash
 # Quick test with predefined questions
 python quick_test.py
+
+# If model is missing, recover it first
+python model_utils.py recover
+python quick_test.py
 ```
 
 ### Default Test Questions
@@ -291,8 +298,25 @@ python test_model.py
 - **Unicode encoding errors**: Fixed in latest version (removed all emoji characters)
 - **Large model files**: Use Hugging Face Hub for model storage (local models excluded from Git)
 - **Model generates poor responses**: Try retraining with more data or different parameters
-- **Model testing fails**: Ensure model exists in `./models/jvm_troubleshooting_model/`
+- **Model testing fails**: Run `python model_utils.py recover` to restore model from Hugging Face
 - **Git push failures**: Large model files are now excluded via .gitignore
+- **Missing model files**: Use model recovery utility to download from Hugging Face Hub
+
+### Model Recovery
+
+If your trained model files are missing (common after Git operations), use the model recovery utility:
+
+```bash
+# Automatic recovery (tries checkpoint first, then Hugging Face)
+python model_utils.py recover
+
+# Manual options
+python model_utils.py copy      # Copy from local checkpoint
+python model_utils.py download  # Download from Hugging Face
+python model_utils.py test      # Test if model loads correctly
+```
+
+**Why models go missing**: Large model files are excluded from Git to prevent repository size issues. The trained models are automatically uploaded to Hugging Face Hub and can be recovered from there.
 
 ## References
 
