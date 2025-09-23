@@ -88,8 +88,8 @@ def prompt_engineered_api(text: str, provider: str = "ollama", model: str = None
 def train_and_upload_model(dataset_dict, auth_token, username):
     print("[INFO] Starting model fine-tuning...")
     
-    # Model configuration
-    base_model = os.getenv('BASE_MODEL', 'microsoft/DialoGPT-small')
+    # Model configuration - use medium model for better quality
+    base_model = os.getenv('BASE_MODEL', 'microsoft/DialoGPT-medium')
     finetune_method = os.getenv('FINETUNE_METHOD', 'full')
     model_name = "jvm_troubleshooting_model"
     model_id = f"{username}/{model_name}"
@@ -139,12 +139,12 @@ def train_and_upload_model(dataset_dict, auth_token, username):
                 # Fallback for invalid entries
                 texts.append("### Human: What is JVM?\n### Assistant: JVM stands for Java Virtual Machine." + tokenizer.eos_token)
         
-        # Tokenize all texts - ALWAYS use padding for consistency
+        # Tokenize all texts with better context length
         model_inputs = tokenizer(
             texts,
             truncation=True,
             padding="max_length",
-            max_length=512,
+            max_length=768,  # Increased for better context
             return_tensors=None
         )
         
@@ -187,23 +187,26 @@ def train_and_upload_model(dataset_dict, auth_token, username):
             fp16=torch.cuda.is_available(),  # Enable mixed precision if GPU available
         )
     else:
-        # Full fine-tuning: Conservative approach
+        # Full fine-tuning: Improved approach
         training_args = TrainingArguments(
             output_dir=f"./models/{model_name}",
             overwrite_output_dir=True,
-            num_train_epochs=3,
-            per_device_train_batch_size=2,
-            per_device_eval_batch_size=2,
-            learning_rate=5e-5,
-            warmup_steps=50,
-            logging_steps=25,
-            save_steps=250,
+            num_train_epochs=5,  # More epochs for better learning
+            per_device_train_batch_size=1,  # Smaller batch for stability
+            per_device_eval_batch_size=1,
+            learning_rate=3e-5,  # Lower learning rate
+            warmup_steps=100,
+            logging_steps=10,
+            save_steps=100,
             eval_strategy="steps",
-            eval_steps=250,
-            save_total_limit=2,
+            eval_steps=100,
+            save_total_limit=3,
             remove_unused_columns=False,
             dataloader_pin_memory=False,
-            fp16=torch.cuda.is_available(),  # Enable mixed precision if GPU available
+            fp16=torch.cuda.is_available(),
+            gradient_accumulation_steps=4,  # Effective batch size = 4
+            weight_decay=0.01,  # Regularization
+            max_grad_norm=1.0,  # Gradient clipping
         )
     
     # Data collator for causal language modeling

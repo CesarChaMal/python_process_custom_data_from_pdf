@@ -9,7 +9,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 def test_jvm_model():
-    """Interactive testing interface for the JVM troubleshooting model."""
+    """Interactive testing interface for the JVM troubleshooting model with conversation memory."""
     
     # Default test questions
     default_questions = [
@@ -25,6 +25,10 @@ def test_jvm_model():
         "How do I handle StackOverflowError?",
         "What are the differences between heap and non-heap memory?"
     ]
+    
+    # Conversation memory
+    conversation_history = []
+    max_history = 5
     
     # Try to load the model
     model_path = "./models/jvm_troubleshooting_model"
@@ -46,14 +50,16 @@ def test_jvm_model():
         return
     
     print("\n" + "="*60)
-    print("JVM TROUBLESHOOTING ASSISTANT")
+    print("JVM TROUBLESHOOTING ASSISTANT (With Memory)")
     print("="*60)
     print("\nAvailable Commands:")
     print("  - 'quit', 'exit', 'q' - Exit the assistant")
     print("  - 'help' - Show this help message")  
     print("  - 'examples' - Show example questions")
     print("  - 'defaults' - Test with default questions")
-    print("\nTry asking questions about JVM troubleshooting!")
+    print("  - 'history' - Show conversation history")
+    print("  - 'clear' - Clear conversation history")
+    print("\nThis model remembers your conversation context!")
     
     while True:
         question = input("\nYour question: ").strip()
@@ -80,24 +86,60 @@ def test_jvm_model():
             print("-" * 50)
             for i, q in enumerate(default_questions[:5], 1):  # Test first 5
                 print(f"\n{i}. Question: {q}")
-                response = generate_response(model, tokenizer, q)
+                response = generate_response_with_memory(model, tokenizer, q, conversation_history)
                 print(f"   Answer: {response}")
+                # Add to history
+                conversation_history.append({"question": q, "answer": response})
+                if len(conversation_history) > max_history:
+                    conversation_history = conversation_history[-max_history:]
             print("-" * 50)
+            continue
+            
+        elif question.lower() == 'history':
+            if not conversation_history:
+                print("\nNo conversation history yet.")
+            else:
+                print("\n=== CONVERSATION HISTORY ===")
+                for i, exchange in enumerate(conversation_history, 1):
+                    print(f"{i}. Q: {exchange['question']}")
+                    print(f"   A: {exchange['answer']}")
+                print("=" * 30)
+            continue
+            
+        elif question.lower() == 'clear':
+            conversation_history.clear()
+            print("\nConversation history cleared.")
             continue
             
         elif not question:
             print("Please enter a question or 'quit' to exit.")
             continue
         
-        # Generate response for user question
-        response = generate_response(model, tokenizer, question)
+        # Generate response with conversation memory
+        response = generate_response_with_memory(model, tokenizer, question, conversation_history)
         print(f"\nAssistant: {response}")
+        
+        # Add to conversation history
+        conversation_history.append({"question": question, "answer": response})
+        if len(conversation_history) > max_history:
+            conversation_history = conversation_history[-max_history:]
 
-def generate_response(model, tokenizer, question):
-    """Generate a response for the given question."""
+def generate_response_with_memory(model, tokenizer, question, conversation_history):
+    """Generate a response with conversation context."""
     try:
-        # Format input
-        input_text = f"### Human: {question}\n### Assistant:"
+        # Build context from conversation history
+        context_parts = []
+        
+        # Add previous exchanges (last 3)
+        for exchange in conversation_history[-3:]:
+            context_parts.append(f"### Human: {exchange['question']}")
+            context_parts.append(f"### Assistant: {exchange['answer']}")
+        
+        # Add current question
+        context_parts.append(f"### Human: {question}")
+        context_parts.append("### Assistant:")
+        
+        input_text = "\n".join(context_parts)
         
         # Tokenize with attention mask
         inputs = tokenizer(
@@ -105,7 +147,7 @@ def generate_response(model, tokenizer, question):
             return_tensors='pt',
             padding=True,
             truncation=True,
-            max_length=512
+            max_length=1024  # Increased for conversation context
         )
         
         # Generate response
@@ -113,22 +155,23 @@ def generate_response(model, tokenizer, question):
             outputs = model.generate(
                 input_ids=inputs['input_ids'],
                 attention_mask=inputs['attention_mask'],
-                max_new_tokens=150,
+                max_new_tokens=100,
                 num_return_sequences=1,
-                temperature=0.7,
+                temperature=0.8,
                 do_sample=True,
                 pad_token_id=tokenizer.eos_token_id,
                 eos_token_id=tokenizer.eos_token_id,
-                repetition_penalty=1.1,
+                repetition_penalty=1.2,
                 no_repeat_ngram_size=3
             )
         
         # Decode and clean response
         response = tokenizer.decode(outputs[0], skip_special_tokens=True)
         
-        # Extract assistant's response
+        # Extract only the new assistant response
         if '### Assistant:' in response:
-            assistant_response = response.split('### Assistant:')[-1].strip()
+            parts = response.split('### Assistant:')
+            assistant_response = parts[-1].strip()
         else:
             assistant_response = response[len(input_text):].strip()
         
@@ -140,7 +183,7 @@ def generate_response(model, tokenizer, question):
             
             for sentence in sentences:
                 sentence = sentence.strip()
-                if sentence and len(sentence) > 10:  # Filter very short fragments
+                if sentence and len(sentence) > 10 and not sentence.startswith('###'):
                     clean_sentences.append(sentence)
                     if len(clean_sentences) >= 2:  # Limit to 2 sentences
                         break
@@ -148,12 +191,16 @@ def generate_response(model, tokenizer, question):
             if clean_sentences:
                 return '. '.join(clean_sentences) + '.'
             else:
-                return "I'm not sure about that. Could you rephrase your question?"
+                return "I need more specific information to provide a better answer."
         else:
-            return "I'm not sure about that. Could you rephrase your question?"
+            return "Could you please rephrase your question?"
             
     except Exception as e:
         return f"Error generating response: {e}"
+
+def generate_response(model, tokenizer, question):
+    """Legacy function for backward compatibility."""
+    return generate_response_with_memory(model, tokenizer, question, [])
 
 if __name__ == "__main__":
     test_jvm_model()
