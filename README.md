@@ -184,45 +184,37 @@ echo "OVERWRITE_DATASET=false" >> .env
 python main.py
 ```
 
-### Example 7: Train Model from Dataset
+### Example 7: Train Model with Better Quality
 ```bash
-# 1. Configure .env for automatic model training
-echo "TRAIN_MODEL=true" >> .env
-
-# 2. Run (will train model after dataset creation)
-python main.py
+# 1. Use interactive setup for training
+./run.sh
+# Choose: Train model after dataset creation
+# Select: DialoGPT-medium for better quality
 ```
 
-### Example 8: Custom Base Model
+### Example 8: Test Trained Model
 ```bash
-# 1. Configure custom base model
-echo "BASE_MODEL=microsoft/DialoGPT-medium" >> .env
-
-# 2. Run with model training
-python main.py
-```
-
-### Example 9: Test Existing Model
-```bash
-# Interactive testing
+# Interactive testing with conversation memory
 python test_model.py
 
-# Quick batch test
+# Quick batch validation
 python quick_test.py
 
-# Recover missing model
+# Recover missing model files
 python model_utils.py recover
 ```
 
 ## Available Base Models
 
-| Model | Size | Speed | Quality | Use Case |
-|-------|------|-------|---------|----------|
-| `microsoft/DialoGPT-small` | 117M | Fast | Good | Quick prototyping |
-| `microsoft/DialoGPT-medium` | 345M | Medium | Better | Balanced performance |
-| `microsoft/DialoGPT-large` | 762M | Slow | Best | Production quality |
-| `distilgpt2` | 82M | Very Fast | Basic | Lightweight deployment |
-| `gpt2` | 124M | Fast | Standard | General purpose |
+| Model | Size | Speed | Quality | Use Case | Default |
+|-------|------|-------|---------|----------|----------|
+| `microsoft/DialoGPT-small` | 117M | Fast | Good | Quick prototyping | |
+| `microsoft/DialoGPT-medium` | 345M | Medium | Better | Balanced performance | ✅ |
+| `microsoft/DialoGPT-large` | 762M | Slow | Best | Production quality | |
+| `distilgpt2` | 82M | Very Fast | Basic | Lightweight deployment | |
+| `gpt2` | 124M | Fast | Standard | General purpose | |
+
+**Note**: DialoGPT-medium is now the default for better response quality.
 
 ## Usage Steps
 
@@ -240,9 +232,9 @@ python model_utils.py recover
 
 ## Model Testing
 
-### Interactive Testing
+### Interactive Testing with Memory
 ```bash
-# Test trained model interactively
+# Test trained model with conversation memory
 python test_model.py
 ```
 
@@ -251,15 +243,18 @@ python test_model.py
 - `help` - Show help message
 - `examples` - Show example questions
 - `defaults` - Test with default questions
+- `history` - Show conversation history
+- `clear` - Clear conversation history
+
+**New Feature**: The model now remembers your conversation context for better follow-up responses!
 
 ### Quick Batch Testing
 ```bash
-# Quick test with predefined questions
+# Quick validation with 11 predefined questions
 python quick_test.py
 
 # If model is missing, recover it first
 python model_utils.py recover
-python quick_test.py
 ```
 
 ### Default Test Questions
@@ -297,10 +292,11 @@ python test_model.py
 - **HF upload fails**: Verify token permissions
 - **Unicode encoding errors**: Fixed in latest version (removed all emoji characters)
 - **Large model files**: Use Hugging Face Hub for model storage (local models excluded from Git)
-- **Model generates poor responses**: Try retraining with more data or different parameters
+- **Model generates poor responses**: The default model is now DialoGPT-medium for better quality. Use conversation memory in `test_model.py` for context-aware responses
 - **Model testing fails**: Run `python model_utils.py recover` to restore model from Hugging Face
-- **Git push failures**: Large model files are now excluded via .gitignore
+- **Git push failures**: Large model files are excluded via .gitignore
 - **Missing model files**: Use model recovery utility to download from Hugging Face Hub
+- **Poor conversation flow**: Use `python test_model.py` which includes conversation memory for better context understanding
 
 ### Model Recovery
 
@@ -317,6 +313,16 @@ python model_utils.py test      # Test if model loads correctly
 ```
 
 **Why models go missing**: Large model files are excluded from Git to prevent repository size issues. The trained models are automatically uploaded to Hugging Face Hub and can be recovered from there.
+
+## Model Quality Improvements
+
+The pipeline now includes several improvements for better model performance:
+
+- **Better Default Model**: DialoGPT-medium (345M parameters) instead of small (117M)
+- **Improved Training**: Lower learning rate, gradient clipping, more epochs
+- **Longer Context**: 768 tokens vs 512 for better understanding
+- **Conversation Memory**: Interactive testing remembers conversation history
+- **Better Data Processing**: Enhanced filtering and preprocessing
 
 ## References
 
@@ -338,6 +344,4 @@ This project was inspired by the "Beginner's Guide to DS, ML, and AI" video seri
 - **Hugging Face Transformers**: Official documentation and tutorials
 - **PyMuPDF Documentation**: PDF processing and text extraction
 - **Ollama Documentation**: Local LLM deployment and usagee Hub for model storage (local models excluded from Git)
-- **Model generates poor responses**: Try retraining with more data or different parameters
-- **Model testing fails**: Ensure model exists in `./models/jvm_troubleshooting_model/`
-- **Git push failures**: Large model files are now excluded via .gitignore
+
