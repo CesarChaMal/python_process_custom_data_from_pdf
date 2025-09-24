@@ -245,6 +245,7 @@ python test_model.py
 - `defaults` - Test with default questions
 - `history` - Show conversation history
 - `clear` - Clear conversation history
+- `context` - Show current context sent to model
 
 **New Feature**: The model now remembers your conversation context for better follow-up responses!
 
