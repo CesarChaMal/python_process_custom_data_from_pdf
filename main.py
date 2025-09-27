@@ -715,10 +715,13 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                     print("  2. Extreme memory efficiency (smallest possible batch)")
                     print("  3. Switch to CPU training")
                     print("  4. Run GPU cleanup utility")
-                    print("  5. Exit and manually free GPU memory")
+                    print("  5. Change base model (go back to model selection)")
+                    print("  6. Change training configuration (go back to training mode)")
+                    print("  7. Skip training and test existing model")
+                    print("  8. Exit and manually free GPU memory")
                     
                     try:
-                        choice = input("\nSelect option (1-5) [1]: ").strip()
+                        choice = input("\nSelect option (1-8) [1]: ").strip()
                         if not choice:
                             choice = '1'
                         
@@ -850,13 +853,70 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                             continue  # Go back to options
                             
                         elif choice == '5':
+                            print("[INFO] Returning to base model selection...")
+                            # Clear current model from memory
+                            del model
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                            # Recursively call the training function with model selection
+                            return train_and_upload_model(dataset_dict, auth_token, username)
+                            
+                        elif choice == '6':
+                            print("[INFO] Returning to training configuration...")
+                            # Clear current model from memory
+                            del model
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                            # Reset training mode and restart
+                            import os
+                            if 'TRAINING_MODE' in os.environ:
+                                del os.environ['TRAINING_MODE']
+                            return train_and_upload_model(dataset_dict, auth_token, username)
+                            
+                        elif choice == '7':
+                            print("[INFO] Skipping training and proceeding to model testing...")
+                            # Check if there's an existing model to test
+                            model_dir = "./models/jvm_troubleshooting_model"
+                            if os.path.exists(model_dir):
+                                print(f"[INFO] Found existing model at {model_dir}")
+                                # Show testing options
+                                print("\n🧪 Model Testing Options:")
+                                print("  1. Interactive testing with conversation memory (test_model.py)")
+                                print("  2. Quick batch testing (quick_test.py)")
+                                print("  3. Skip testing")
+                                
+                                try:
+                                    test_choice = input("\nChoose testing option (1-3) [1]: ").strip()
+                                    if not test_choice:
+                                        test_choice = '1'
+                                    
+                                    if test_choice == '1':
+                                        print("[INFO] Starting interactive testing...")
+                                        import subprocess
+                                        subprocess.run(["python", "test_model.py"])
+                                    elif test_choice == '2':
+                                        print("[INFO] Starting quick batch testing...")
+                                        import subprocess
+                                        subprocess.run(["python", "quick_test.py"])
+                                    elif test_choice == '3':
+                                        print("[INFO] Skipping testing")
+                                    
+                                except (EOFError, KeyboardInterrupt):
+                                    print("\n[INFO] Testing skipped")
+                            else:
+                                print("[WARNING] No existing model found to test")
+                                print("[INFO] You can try downloading from Hugging Face:")
+                                print("  python model_utils.py recover")
+                            return
+                            
+                        elif choice == '8':
                             print("[INFO] Exiting. Please free GPU memory manually and retry.")
                             print("[TIP] Run: nvidia-smi to check GPU processes")
                             print("[TIP] Kill processes with: kill -9 <PID>")
                             print("[TIP] Run: python gpu_cleanup.py for automated cleanup")
                             return
                         else:
-                            print("Please enter 1, 2, 3, 4, or 5")
+                            print("Please enter 1, 2, 3, 4, 5, 6, 7, or 8")
                             continue
                             
                     except (EOFError, KeyboardInterrupt):
