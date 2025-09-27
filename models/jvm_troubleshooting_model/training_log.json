@@ -1,0 +1,32 @@
+[
+  {
+    "loss": 684.0879,
+    "grad_norm": NaN,
+    "learning_rate": 2.7e-06,
+    "epoch": 0.8,
+    "step": 10
+  },
+  {
+    "loss": 0.0,
+    "grad_norm": NaN,
+    "learning_rate": 5.7000000000000005e-06,
+    "epoch": 1.56,
+    "step": 20
+  },
+  {
+    "loss": 0.0,
+    "grad_norm": NaN,
+    "learning_rate": 8.7e-06,
+    "epoch": 2.32,
+    "step": 30
+  },
+  {
+    "train_runtime": 102.9215,
+    "train_samples_per_second": 2.915,
+    "train_steps_per_second": 0.379,
+    "total_flos": 979278888960000.0,
+    "train_loss": 175.40715144230768,
+    "epoch": 3.0,
+    "step": 39
+  }
+]

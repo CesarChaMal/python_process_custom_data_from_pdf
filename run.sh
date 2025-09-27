@@ -301,24 +301,54 @@ if [ "$dataset_choice" = "2" ]; then
         echo ""
         echo "📡 OpenAI Configuration:"
         echo "Available models:"
-        echo "   - gpt-4o-mini: Fast, cost-effective, good quality"
-        echo "   - gpt-3.5-turbo: Balanced speed and quality"
-        echo "   - gpt-4: Highest quality, slower, more expensive"
+        echo "   1) gpt-4o-mini: Fast, cost-effective, good quality"
+        echo "   2) gpt-3.5-turbo: Balanced speed and quality"
+        echo "   3) gpt-4: Highest quality, slower, more expensive"
+        echo "   4) Custom model (Enter your own)"
         echo ""
-        read -p "Enter OpenAI model [gpt-4o-mini]: " ai_model
-        ai_model=${ai_model:-gpt-4o-mini}
+        read -p "Choose OpenAI model (1-4) [1]: " openai_model_choice
+        openai_model_choice=${openai_model_choice:-1}
+        
+        case $openai_model_choice in
+            1) ai_model="gpt-4o-mini"
+               echo "✓ Selected gpt-4o-mini (fast, cost-effective)" ;;
+            2) ai_model="gpt-3.5-turbo"
+               echo "✓ Selected gpt-3.5-turbo (balanced)" ;;
+            3) ai_model="gpt-4"
+               echo "✓ Selected gpt-4 (highest quality)" ;;
+            4) echo ""
+               read -p "Enter custom OpenAI model: " ai_model
+               echo "✓ Selected custom model: $ai_model" ;;
+            *) ai_model="gpt-4o-mini"
+               echo "✓ Using default: gpt-4o-mini" ;;
+        esac
     else
         AI_PROVIDER="ollama"
         echo ""
         echo "🏠 Ollama Configuration:"
         echo "Using local Ollama server for private, offline processing"
         echo "Recommended models:"
-        echo "   - cesarchamal/qa-expert: Optimized for Q&A generation"
-        echo "   - llama3.2: General purpose, good quality"
-        echo "   - llama3.1: Latest version with improvements"
+        echo "   1) cesarchamal/qa-expert: Optimized for Q&A generation"
+        echo "   2) llama3.2: General purpose, good quality"
+        echo "   3) llama3.1: Latest version with improvements"
+        echo "   4) Custom model (Enter your own)"
         echo ""
-        read -p "Enter Ollama model [cesarchamal/qa-expert]: " ai_model
-        ai_model=${ai_model:-cesarchamal/qa-expert}
+        read -p "Choose Ollama model (1-4) [1]: " ollama_model_choice
+        ollama_model_choice=${ollama_model_choice:-1}
+        
+        case $ollama_model_choice in
+            1) ai_model="cesarchamal/qa-expert"
+               echo "✓ Selected cesarchamal/qa-expert (Q&A optimized)" ;;
+            2) ai_model="llama3.2"
+               echo "✓ Selected llama3.2 (general purpose)" ;;
+            3) ai_model="llama3.1"
+               echo "✓ Selected llama3.1 (latest version)" ;;
+            4) echo ""
+               read -p "Enter custom Ollama model: " ai_model
+               echo "✓ Selected custom model: $ai_model" ;;
+            *) ai_model="cesarchamal/qa-expert"
+               echo "✓ Using default: cesarchamal/qa-expert" ;;
+        esac
     fi
 else
     OVERWRITE_DATASET="false"

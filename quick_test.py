@@ -160,6 +160,10 @@ def quick_test():
                 add_special_tokens=True
             )
             
+            # Move inputs to same device as model
+            device = next(model.parameters()).device
+            inputs = {k: v.to(device) for k, v in inputs.items()}
+            
             # Generate response with optimized parameters
             with torch.no_grad():
                 outputs = model.generate(

@@ -469,10 +469,17 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                     print("  5. Change training configuration (go back to training mode)")
                     print("  6. Skip training and test existing model")
                     print("  7. Exit and manually free GPU memory")
+                    print("")
+                    
+                    # Ensure all output is flushed before input
+                    import sys
                     sys.stdout.flush()
+                    sys.stderr.flush()
                     
                     try:
-                        choice = input("\nSelect option (1-7) [4]: ").strip() or '4'
+                        choice = input("Select option (1-7) [4]: ").strip()
+                        if not choice:
+                            choice = '4'
                         
                         if choice == '1':
                             print("[INFO] Applying smaller memory limit (2GB)...")
@@ -569,13 +576,17 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
             
             import sys
             if sys.stdin.isatty():
-                # Temporarily disable debug logging
+                # Temporarily disable ALL logging to avoid interference
                 original_level = logging.getLogger().level
-                logging.getLogger().setLevel(logging.WARNING)
+                logging.getLogger().setLevel(logging.CRITICAL)
+                
+                # Flush all output streams
                 sys.stdout.flush()
                 sys.stderr.flush()
                 
                 result = handle_error_menu()
+                
+                # Restore logging level
                 logging.getLogger().setLevel(original_level)
                 
                 if result == "restart":
@@ -990,7 +1001,12 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                     
                     try:
                         default_choice = str(recommendations[0][0]) if recommendations else '1'
-                        choice = input(f"\nSelect option (1-8) [{default_choice}]: ").strip()
+                        # Ensure clean input prompt
+                        import sys
+                        sys.stdout.flush()
+                        sys.stderr.flush()
+                        
+                        choice = input(f"Select option (1-8) [{default_choice}]: ").strip()
                         if not choice:
                             choice = default_choice
                         
@@ -1414,17 +1430,13 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
             # Initialize Hugging Face API
             api = HfApi()
             
-            # Create model repository
+            # Ensure repository exists (ignore if already exists)
             try:
-                create_repo(repo_id=model_id, token=auth_token, repo_type="model")
-                print(f"[SUCCESS] Repository {model_id} created!")
-            except HfHubHTTPError as e:
-                if "already exists" in str(e):
-                    print(f"[INFO] Repository {model_id} already exists, updating...")
-                else:
-                    raise e
+                create_repo(repo_id=model_id, token=auth_token, repo_type="model", exist_ok=True)
+            except HfHubHTTPError:
+                pass  # Repository already exists, continue with upload
             
-            # Upload all model files
+            # Upload all model files (this will overwrite existing files)
             api.upload_folder(
                 folder_path=model_dir,
                 repo_id=model_id,

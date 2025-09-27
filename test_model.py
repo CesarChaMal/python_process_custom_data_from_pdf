@@ -337,6 +337,10 @@ def generate_response_with_memory(model, tokenizer, question, conversation_histo
             add_special_tokens=True
         )
         
+        # Move inputs to same device as model
+        device = next(model.parameters()).device
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+        
         # =============================================================================
         # RESPONSE GENERATION
         # =============================================================================
