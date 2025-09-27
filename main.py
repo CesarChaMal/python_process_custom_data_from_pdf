@@ -275,11 +275,12 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
             print(f"  Total: {total_mem:.1f} GB")
             print(f"  Available: {available:.1f} GB")
             
-            if available >= 10:
+            if available >= 4:  # Lower threshold to show menu more often
                 print("\n[INFO] Model Selection (GPU):")
                 print("  1. DialoGPT-small (117M params) - Fast, 2-4GB VRAM")
                 print("  2. DialoGPT-medium (345M params) - Balanced, 4-6GB VRAM")
-                print("  3. DialoGPT-large (774M params) - Best quality, 8-12GB VRAM")
+                if available >= 8:
+                    print("  3. DialoGPT-large (774M params) - Best quality, 8-12GB VRAM")
                 
                 import sys
                 if sys.stdin.isatty():
@@ -294,9 +295,12 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                             elif choice == '2':
                                 base_model = 'microsoft/DialoGPT-medium'
                                 break
-                            elif choice == '3':
+                            elif choice == '3' and available >= 8:
                                 base_model = 'microsoft/DialoGPT-large'
                                 break
+                            elif choice == '3' and available < 8:
+                                print(f"Large model requires 8GB+ available memory (you have {available:.1f}GB)")
+                                continue
                             else:
                                 print("Please enter 1, 2, or 3")
                         except (EOFError, KeyboardInterrupt):
@@ -506,6 +510,15 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                                 continue
                         elif choice == '4':
                             print("[INFO] Returning to base model selection...")
+                            # Clear BASE_MODEL to force reselection
+                            if 'BASE_MODEL' in os.environ:
+                                del os.environ['BASE_MODEL']
+                            # Clear GPU memory before restarting
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                                torch.cuda.ipc_collect()
+                                import gc
+                                gc.collect()
                             return train_and_upload_model(dataset_dict, auth_token, username)
                         elif choice == '5':
                             print("[INFO] Returning to training configuration...")
