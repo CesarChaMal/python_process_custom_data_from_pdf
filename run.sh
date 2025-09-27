@@ -266,51 +266,66 @@ echo "[6/8] Interactive Configuration Setup"
 echo "============================================================================"
 echo "Configure your ML pipeline settings:"
 echo ""
-echo "🤖 1. AI Provider Selection:"
-echo "   1) Ollama (Local LLM - Free, Private, Requires local setup)"
-echo "   2) OpenAI (Cloud API - Paid, High quality, Easy setup)"
-echo ""
-read -p "Choose AI provider (1-2) [1]: " provider_choice
-provider_choice=${provider_choice:-1}  # Default to Ollama
 
-# Configure AI provider based on user selection
-if [ "$provider_choice" = "2" ]; then
-    AI_PROVIDER="openai"
+# Check for existing dataset first
+echo "📊 1. Dataset Management:"
+if [ -d "./dataset/jvm_troubleshooting_guide" ]; then
+    echo "✅ Found existing dataset at ./dataset/jvm_troubleshooting_guide"
+    echo "   1) Use existing dataset (Faster, reuse previous work)"
+    echo "   2) Regenerate dataset from PDF (Fresh generation, slower)"
     echo ""
-    echo "📡 OpenAI Configuration:"
-    echo "Available models:"
-    echo "   - gpt-4o-mini: Fast, cost-effective, good quality"
-    echo "   - gpt-3.5-turbo: Balanced speed and quality"
-    echo "   - gpt-4: Highest quality, slower, more expensive"
-    echo ""
-    read -p "Enter OpenAI model [gpt-4o-mini]: " ai_model
-    ai_model=${ai_model:-gpt-4o-mini}
+    read -p "Choose dataset option (1-2) [1]: " dataset_choice
+    dataset_choice=${dataset_choice:-1}  # Default to reuse existing
 else
-    AI_PROVIDER="ollama"
-    echo ""
-    echo "🏠 Ollama Configuration:"
-    echo "Using local Ollama server for private, offline processing"
-    echo "Recommended model: cesarchamal/qa-expert (optimized for Q&A generation)"
-    echo ""
-    read -p "Enter Ollama model [cesarchamal/qa-expert]: " ai_model
-    ai_model=${ai_model:-cesarchamal/qa-expert}
+    echo "📄 No existing dataset found - will generate from PDF"
+    dataset_choice=2  # Force generation
 fi
-
-echo ""
-echo "📊 2. Dataset Management:"
-echo "   1) Use existing dataset if found (Faster, reuse previous work)"
-echo "   2) Always overwrite existing dataset (Fresh generation, slower)"
-echo ""
-read -p "Choose dataset option (1-2) [1]: " dataset_choice
-dataset_choice=${dataset_choice:-1}  # Default to reuse existing
 
 # Set dataset overwrite behavior
 if [ "$dataset_choice" = "2" ]; then
     OVERWRITE_DATASET="true"
-    echo "✓ Will regenerate dataset from scratch"
+    echo "✓ Will generate/regenerate dataset from PDF"
+    
+    # Only ask for AI provider if we need to generate dataset
+    echo ""
+    echo "🤖 2. AI Provider Selection (for dataset generation):"
+    echo "   1) Ollama (Local LLM - Free, Private, Requires local setup)"
+    echo "   2) OpenAI (Cloud API - Paid, High quality, Easy setup)"
+    echo ""
+    read -p "Choose AI provider (1-2) [1]: " provider_choice
+    provider_choice=${provider_choice:-1}  # Default to Ollama
+    
+    # Configure AI provider based on user selection
+    if [ "$provider_choice" = "2" ]; then
+        AI_PROVIDER="openai"
+        echo ""
+        echo "📡 OpenAI Configuration:"
+        echo "Available models:"
+        echo "   - gpt-4o-mini: Fast, cost-effective, good quality"
+        echo "   - gpt-3.5-turbo: Balanced speed and quality"
+        echo "   - gpt-4: Highest quality, slower, more expensive"
+        echo ""
+        read -p "Enter OpenAI model [gpt-4o-mini]: " ai_model
+        ai_model=${ai_model:-gpt-4o-mini}
+    else
+        AI_PROVIDER="ollama"
+        echo ""
+        echo "🏠 Ollama Configuration:"
+        echo "Using local Ollama server for private, offline processing"
+        echo "Recommended models:"
+        echo "   - cesarchamal/qa-expert: Optimized for Q&A generation"
+        echo "   - llama3.2: General purpose, good quality"
+        echo "   - llama3.1: Latest version with improvements"
+        echo ""
+        read -p "Enter Ollama model [cesarchamal/qa-expert]: " ai_model
+        ai_model=${ai_model:-cesarchamal/qa-expert}
+    fi
 else
     OVERWRITE_DATASET="false"
-    echo "✓ Will reuse existing dataset if available"
+    echo "✓ Will use existing dataset"
+    # Set defaults for AI provider (not needed for existing dataset)
+    AI_PROVIDER="ollama"
+    ai_model="cesarchamal/qa-expert"
 fi
 
 echo ""

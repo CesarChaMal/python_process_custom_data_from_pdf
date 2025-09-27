@@ -264,69 +264,81 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
     
     def select_base_model():
         """Interactive base model selection with memory analysis"""
-        if torch.cuda.is_available():
-            total_mem = torch.cuda.get_device_properties(0).total_memory / 1024**3
-            reserved = torch.cuda.memory_reserved(0) / 1024**3
-            available = total_mem - reserved
-            
-            print(f"\n[INFO] GPU Memory Analysis:")
-            print(f"  Total: {total_mem:.1f} GB")
-            print(f"  Available: {available:.1f} GB")
-            
-            print("\n[INFO] Model Selection (GPU):")
-            print("  1. DialoGPT-small (117M params) - Fast, 2-4GB VRAM")
-            print("  2. DialoGPT-medium (345M params) - Balanced, 4-6GB VRAM")
-            print("  3. DialoGPT-large (774M params) - Best quality, 8-12GB VRAM")
-            
-            import sys
-            if sys.stdin.isatty():
-                for attempt in range(3):
-                    try:
-                        choice = input("\nSelect model (1, 2, or 3) [default: 2]: ").strip()
-                        if not choice:
-                            choice = '2'
-                        if choice == '1':
-                            return 'microsoft/DialoGPT-small'
-                        elif choice == '2':
-                            return 'microsoft/DialoGPT-medium'
-                        elif choice == '3':
-                            if available >= 8:
-                                return 'microsoft/DialoGPT-large'
+        # Temporarily disable debug logging to avoid interference
+        original_level = logging.getLogger().level
+        logging.getLogger().setLevel(logging.WARNING)
+        
+        try:
+            if torch.cuda.is_available():
+                total_mem = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                reserved = torch.cuda.memory_reserved(0) / 1024**3
+                available = total_mem - reserved
+                
+                print(f"\n[INFO] GPU Memory Analysis:")
+                print(f"  Total: {total_mem:.1f} GB")
+                print(f"  Available: {available:.1f} GB")
+                
+                print("\n[INFO] Model Selection (GPU):")
+                print("  1. DialoGPT-small (117M params) - Fast, 2-4GB VRAM")
+                print("  2. DialoGPT-medium (345M params) - Balanced, 4-6GB VRAM")
+                print("  3. DialoGPT-large (774M params) - Best quality, 8-12GB VRAM")
+                
+                import sys
+                sys.stdout.flush()
+                
+                if sys.stdin.isatty():
+                    for attempt in range(3):
+                        try:
+                            choice = input("\nSelect model (1, 2, or 3) [default: 2]: ").strip()
+                            if not choice:
+                                choice = '2'
+                            if choice == '1':
+                                return 'microsoft/DialoGPT-small'
+                            elif choice == '2':
+                                return 'microsoft/DialoGPT-medium'
+                            elif choice == '3':
+                                if available >= 8:
+                                    return 'microsoft/DialoGPT-large'
+                                else:
+                                    print(f"Large model requires 8GB+ available memory (you have {available:.1f}GB)")
+                                    continue
                             else:
-                                print(f"Large model requires 8GB+ available memory (you have {available:.1f}GB)")
-                                continue
-                        else:
-                            print("Please enter 1, 2, or 3")
-                    except (EOFError, KeyboardInterrupt):
-                        break
-            
-            print("[INFO] Using default: DialoGPT-medium")
-            return 'microsoft/DialoGPT-medium'
-        else:
-            print("\n[INFO] CPU Mode Detected")
-            print("\n[INFO] Model Selection (CPU):")
-            print("  1. DialoGPT-small (117M params) - Recommended for CPU")
-            print("  2. DialoGPT-medium (345M params) - Slower on CPU")
-            
-            import sys
-            if sys.stdin.isatty():
-                for attempt in range(3):
-                    try:
-                        choice = input("\nSelect model (1 or 2) [default: 1]: ").strip()
-                        if not choice:
-                            choice = '1'
-                        if choice == '1':
-                            return 'microsoft/DialoGPT-small'
-                        elif choice == '2':
-                            print("[WARNING] Medium model will be slow on CPU")
-                            return 'microsoft/DialoGPT-medium'
-                        else:
-                            print("Please enter 1 or 2")
-                    except (EOFError, KeyboardInterrupt):
-                        break
-            
-            print("[INFO] Using default: DialoGPT-small")
-            return 'microsoft/DialoGPT-small'
+                                print("Please enter 1, 2, or 3")
+                        except (EOFError, KeyboardInterrupt):
+                            break
+                
+                print("[INFO] Using default: DialoGPT-medium")
+                return 'microsoft/DialoGPT-medium'
+            else:
+                print("\n[INFO] CPU Mode Detected")
+                print("\n[INFO] Model Selection (CPU):")
+                print("  1. DialoGPT-small (117M params) - Recommended for CPU")
+                print("  2. DialoGPT-medium (345M params) - Slower on CPU")
+                
+                import sys
+                sys.stdout.flush()
+                
+                if sys.stdin.isatty():
+                    for attempt in range(3):
+                        try:
+                            choice = input("\nSelect model (1 or 2) [default: 1]: ").strip()
+                            if not choice:
+                                choice = '1'
+                            if choice == '1':
+                                return 'microsoft/DialoGPT-small'
+                            elif choice == '2':
+                                print("[WARNING] Medium model will be slow on CPU")
+                                return 'microsoft/DialoGPT-medium'
+                            else:
+                                print("Please enter 1 or 2")
+                        except (EOFError, KeyboardInterrupt):
+                            break
+                
+                print("[INFO] Using default: DialoGPT-small")
+                return 'microsoft/DialoGPT-small'
+        finally:
+            # Always restore logging level
+            logging.getLogger().setLevel(original_level)
     
     # Get configuration from environment variables with sensible defaults
     base_model = os.getenv('BASE_MODEL')
@@ -374,6 +386,9 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
     # =============================================================================
     
     print("[INFO] Loading base model and tokenizer...")
+    
+    # Initialize model variable to avoid scope issues
+    model = None
     
     try:
         # Load tokenizer with proper configuration
@@ -428,7 +443,9 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                     torch.cuda.ipc_collect()
                     import gc
                     gc.collect()
-                del model
+                if model is not None:
+                    del model
+                    model = None
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
             
@@ -612,49 +629,62 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
         """Interactive training configuration selection with fallback"""
         import sys
         
-        if torch.cuda.is_available():
-            print("\n[INFO] Training Configuration (GPU):")
-            print("  1. Conservative - Safe for any GPU (2GB+ VRAM)")
-            print("  2. Balanced - Good performance/memory trade-off (6GB+ VRAM)")
-            print("  3. Aggressive - High performance (10GB+ VRAM)")
-            print("  4. Extreme - Maximum memory efficiency (any VRAM)")
-            
-            # Check if running in interactive mode
-            if sys.stdin.isatty():
-                for attempt in range(3):
-                    try:
-                        choice = input("\nSelect training mode (1-4) [default: 2]: ").strip()
-                        if not choice:  # Default to balanced
-                            choice = '2'
-                        if choice in ['1', '2', '3', '4']:
-                            return f"gpu_{choice}"
-                        print("Please enter 1, 2, 3, or 4")
-                    except (EOFError, KeyboardInterrupt):
-                        break
-            
-            # Fallback to balanced mode
-            print("[INFO] Using default: Balanced mode (gpu_2)")
-            return "gpu_2"
-        else:
-            print("\n[INFO] Training Configuration (CPU):")
-            print("  1. Fast - Minimal training for quick results")
-            print("  2. Quality - Better training with more time")
-            
-            if sys.stdin.isatty():
-                for attempt in range(3):
-                    try:
-                        choice = input("\nSelect training mode (1-2) [default: 1]: ").strip()
-                        if not choice:  # Default to fast
-                            choice = '1'
-                        if choice in ['1', '2']:
-                            return f"cpu_{choice}"
-                        print("Please enter 1 or 2")
-                    except (EOFError, KeyboardInterrupt):
-                        break
-            
-            # Fallback to fast mode
-            print("[INFO] Using default: Fast mode (cpu_1)")
-            return "cpu_1"
+        # Temporarily disable debug logging to avoid interference
+        original_level = logging.getLogger().level
+        logging.getLogger().setLevel(logging.WARNING)
+        
+        try:
+            if torch.cuda.is_available():
+                print("\n[INFO] Training Configuration (GPU):")
+                print("  1. Conservative - Safe for any GPU (2GB+ VRAM)")
+                print("  2. Balanced - Good performance/memory trade-off (6GB+ VRAM)")
+                print("  3. Aggressive - High performance (10GB+ VRAM)")
+                print("  4. Extreme - Maximum memory efficiency (any VRAM)")
+                
+                # Flush output before input
+                sys.stdout.flush()
+                
+                # Check if running in interactive mode
+                if sys.stdin.isatty():
+                    for attempt in range(3):
+                        try:
+                            choice = input("\nSelect training mode (1-4) [default: 2]: ").strip()
+                            if not choice:  # Default to balanced
+                                choice = '2'
+                            if choice in ['1', '2', '3', '4']:
+                                return f"gpu_{choice}"
+                            print("Please enter 1, 2, 3, or 4")
+                        except (EOFError, KeyboardInterrupt):
+                            break
+                
+                # Fallback to balanced mode
+                print("[INFO] Using default: Balanced mode (gpu_2)")
+                return "gpu_2"
+            else:
+                print("\n[INFO] Training Configuration (CPU):")
+                print("  1. Fast - Minimal training for quick results")
+                print("  2. Quality - Better training with more time")
+                
+                sys.stdout.flush()
+                
+                if sys.stdin.isatty():
+                    for attempt in range(3):
+                        try:
+                            choice = input("\nSelect training mode (1-2) [default: 1]: ").strip()
+                            if not choice:  # Default to fast
+                                choice = '1'
+                            if choice in ['1', '2']:
+                                return f"cpu_{choice}"
+                            print("Please enter 1 or 2")
+                        except (EOFError, KeyboardInterrupt):
+                            break
+                
+                # Fallback to fast mode
+                print("[INFO] Using default: Fast mode (cpu_1)")
+                return "cpu_1"
+        finally:
+            # Always restore logging level
+            logging.getLogger().setLevel(original_level)
     
     # Get training configuration early
     training_mode = os.getenv('TRAINING_MODE')
