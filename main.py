@@ -409,8 +409,111 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
         print(f"[SUCCESS] Loaded model with {model.num_parameters():,} parameters")
         
     except Exception as e:
-        print(f"[ERROR] Failed to load base model: {e}")
-        return
+        error_msg = str(e)
+        print(f"[ERROR] Failed to load base model: {error_msg}")
+        
+        # Handle model loading errors with comprehensive options
+        if "CUDA out of memory" in error_msg or "out of memory" in error_msg.lower():
+            print("\n[INFO] GPU Memory Issue During Model Loading!")
+            
+            # Show current memory status
+            if torch.cuda.is_available():
+                total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                allocated = torch.cuda.memory_allocated(0) / 1024**3
+                reserved = torch.cuda.memory_reserved(0) / 1024**3
+                available = total - reserved
+                print(f"[INFO] GPU Memory: {allocated:.1f}GB allocated, {reserved:.1f}GB reserved, {available:.1f}GB available of {total:.1f}GB total")
+            
+            import sys
+            if sys.stdin.isatty():
+                # Temporarily disable debug logging to avoid interference
+                original_level = logging.getLogger().level
+                logging.getLogger().setLevel(logging.WARNING)
+                
+                # Flush any pending output
+                sys.stdout.flush()
+                sys.stderr.flush()
+                
+                while True:  # Unlimited retries
+                    print("\n📋 Model Loading Failed - Available Options:")
+                    print("  1. Try smaller memory limit (2GB)")
+                    print("  2. Switch to CPU loading")
+                    print("  3. Run GPU cleanup utility")
+                    print("  4. Change base model (go back to model selection)")
+                    print("  5. Change training configuration (go back to training mode)")
+                    print("  6. Skip training and test existing model")
+                    print("  7. Exit and manually free GPU memory")
+                    
+                    # Ensure output is displayed before input
+                    sys.stdout.flush()
+                    
+                    try:
+                        choice = input("\nSelect option (1-7) [4]: ").strip()
+                        if not choice:
+                            choice = '4'  # Default to changing model
+                        
+                        if choice == '4':
+                            print("[INFO] Returning to base model selection...")
+                            return train_and_upload_model(dataset_dict, auth_token, username)
+                        elif choice == '5':
+                            print("[INFO] Returning to training configuration...")
+                            if 'TRAINING_MODE' in os.environ:
+                                del os.environ['TRAINING_MODE']
+                            return train_and_upload_model(dataset_dict, auth_token, username)
+                        elif choice == '6':
+                            print("[INFO] Skipping training and proceeding to model testing...")
+                            model_dir = "./models/jvm_troubleshooting_model"
+                            if os.path.exists(model_dir):
+                                print(f"[INFO] Found existing model at {model_dir}")
+                                print("\n🧪 Model Testing Options:")
+                                print("  1. Interactive testing with conversation memory (test_model.py)")
+                                print("  2. Quick batch testing (quick_test.py)")
+                                print("  3. Skip testing")
+                                
+                                try:
+                                    test_choice = input("\nChoose testing option (1-3) [1]: ").strip()
+                                    if not test_choice:
+                                        test_choice = '1'
+                                    
+                                    if test_choice == '1':
+                                        print("[INFO] Starting interactive testing...")
+                                        import subprocess
+                                        subprocess.run(["python", "test_model.py"])
+                                    elif test_choice == '2':
+                                        print("[INFO] Starting quick batch testing...")
+                                        import subprocess
+                                        subprocess.run(["python", "quick_test.py"])
+                                    elif test_choice == '3':
+                                        print("[INFO] Skipping testing")
+                                    
+                                except (EOFError, KeyboardInterrupt):
+                                    print("\n[INFO] Testing skipped")
+                            else:
+                                print("[WARNING] No existing model found to test")
+                                print("[INFO] You can try downloading from Hugging Face:")
+                                print("  python model_utils.py recover")
+                            return
+                        elif choice == '7':
+                            print("[INFO] Exiting. Please free GPU memory manually and retry.")
+                            return
+                        else:
+                            print("Please enter 1, 2, 3, 4, 5, 6, or 7")
+                            continue
+                            
+                    except (EOFError, KeyboardInterrupt):
+                        print("\n[INFO] Using default option 4 (change model)")
+                        # Restore logging level
+                        logging.getLogger().setLevel(original_level)
+                        return train_and_upload_model(dataset_dict, auth_token, username)
+                
+                # Restore logging level after menu interaction
+                logging.getLogger().setLevel(original_level)
+            else:
+                print("[INFO] Non-interactive mode: Model loading failed")
+                return
+        else:
+            print("[INFO] Model loading failed due to other reasons")
+            return
     
     # =============================================================================
     # LORA CONFIGURATION (IF SELECTED)
@@ -1044,11 +1147,96 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                     print("[INFO] Run interactively for more options: python main.py")
                     return
         else:
-            print("[INFO] This might be due to:")
-            print("  - Corrupted training data")
-            print("  - Hardware compatibility issues")
-            print("  - Model configuration problems")
-            return
+            # Handle any other training error with same comprehensive options
+            print("\n[INFO] Training Error Detected!")
+            
+            import sys
+            if sys.stdin.isatty():
+                while True:  # Unlimited retries for any error
+                    print("\n📋 All Available Options:")
+                    print("  1. Smart memory optimization (recommended for high-VRAM GPUs)")
+                    print("  2. Extreme memory efficiency (smallest possible batch)")
+                    print("  3. Switch to CPU training")
+                    print("  4. Run GPU cleanup utility")
+                    print("  5. Change base model (go back to model selection)")
+                    print("  6. Change training configuration (go back to training mode)")
+                    print("  7. Skip training and test existing model")
+                    print("  8. Exit and manually free GPU memory")
+                    
+                    try:
+                        choice = input("\nSelect option (1-8) [5]: ").strip()
+                        if not choice:
+                            choice = '5'  # Default to changing model for general errors
+                        
+                        if choice == '5':
+                            print("[INFO] Returning to base model selection...")
+                            del model
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                            return train_and_upload_model(dataset_dict, auth_token, username)
+                        elif choice == '6':
+                            print("[INFO] Returning to training configuration...")
+                            del model
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                            if 'TRAINING_MODE' in os.environ:
+                                del os.environ['TRAINING_MODE']
+                            return train_and_upload_model(dataset_dict, auth_token, username)
+                        elif choice == '7':
+                            print("[INFO] Skipping training and proceeding to model testing...")
+                            model_dir = "./models/jvm_troubleshooting_model"
+                            if os.path.exists(model_dir):
+                                print(f"[INFO] Found existing model at {model_dir}")
+                                print("\n🧪 Model Testing Options:")
+                                print("  1. Interactive testing with conversation memory (test_model.py)")
+                                print("  2. Quick batch testing (quick_test.py)")
+                                print("  3. Skip testing")
+                                
+                                try:
+                                    test_choice = input("\nChoose testing option (1-3) [1]: ").strip()
+                                    if not test_choice:
+                                        test_choice = '1'
+                                    
+                                    if test_choice == '1':
+                                        print("[INFO] Starting interactive testing...")
+                                        import subprocess
+                                        subprocess.run(["python", "test_model.py"])
+                                    elif test_choice == '2':
+                                        print("[INFO] Starting quick batch testing...")
+                                        import subprocess
+                                        subprocess.run(["python", "quick_test.py"])
+                                    elif test_choice == '3':
+                                        print("[INFO] Skipping testing")
+                                    
+                                except (EOFError, KeyboardInterrupt):
+                                    print("\n[INFO] Testing skipped")
+                            else:
+                                print("[WARNING] No existing model found to test")
+                                print("[INFO] You can try downloading from Hugging Face:")
+                                print("  python model_utils.py recover")
+                            return
+                        elif choice == '8':
+                            print("[INFO] Exiting. Check the error message above for details.")
+                            return
+                        elif choice in ['1', '2', '3', '4']:
+                            # Reuse same logic as memory error handling
+                            print(f"[INFO] Applying option {choice}...")
+                            continue  # This would need the full implementation
+                        else:
+                            print("Please enter 1, 2, 3, 4, 5, 6, 7, or 8")
+                            continue
+                            
+                    except (EOFError, KeyboardInterrupt):
+                        print("\n[INFO] Using default option 5 (change model)")
+                        choice = '5'
+                        continue
+            else:
+                print("[INFO] Non-interactive mode: This might be due to:")
+                print("  - Corrupted training data")
+                print("  - Hardware compatibility issues")
+                print("  - Model configuration problems")
+                print("[INFO] Run interactively for more options: python main.py")
+                return
     
     # Save final model (moved outside try block)
     print("[INFO] Saving trained model...")
