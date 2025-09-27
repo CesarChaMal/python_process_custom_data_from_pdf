@@ -12,21 +12,21 @@
     {
       "epoch": 0.8,
       "grad_norm": NaN,
-      "learning_rate": 2.7e-06,
+      "learning_rate": 4.5e-06,
       "loss": 684.0879,
       "step": 10
     },
     {
       "epoch": 1.56,
       "grad_norm": NaN,
-      "learning_rate": 5.7000000000000005e-06,
+      "learning_rate": 9.5e-06,
       "loss": 0.0,
       "step": 20
     },
     {
       "epoch": 2.32,
       "grad_norm": NaN,
-      "learning_rate": 8.7e-06,
+      "learning_rate": 1.45e-05,
       "loss": 0.0,
       "step": 30
     }

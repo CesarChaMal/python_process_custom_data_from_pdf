@@ -2,28 +2,28 @@
   {
     "loss": 684.0879,
     "grad_norm": NaN,
-    "learning_rate": 2.7e-06,
+    "learning_rate": 4.5e-06,
     "epoch": 0.8,
     "step": 10
   },
   {
     "loss": 0.0,
     "grad_norm": NaN,
-    "learning_rate": 5.7000000000000005e-06,
+    "learning_rate": 9.5e-06,
     "epoch": 1.56,
     "step": 20
   },
   {
     "loss": 0.0,
     "grad_norm": NaN,
-    "learning_rate": 8.7e-06,
+    "learning_rate": 1.45e-05,
     "epoch": 2.32,
     "step": 30
   },
   {
-    "train_runtime": 103.9741,
-    "train_samples_per_second": 2.885,
-    "train_steps_per_second": 0.375,
+    "train_runtime": 108.532,
+    "train_samples_per_second": 2.764,
+    "train_steps_per_second": 0.359,
     "total_flos": 979278888960000.0,
     "train_loss": 175.40715144230768,
     "epoch": 3.0,

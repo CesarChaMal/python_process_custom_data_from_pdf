@@ -810,11 +810,19 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
             training_args = TrainingArguments(
                 output_dir=model_dir, overwrite_output_dir=True, num_train_epochs=3,
                 per_device_train_batch_size=2, per_device_eval_batch_size=2, gradient_accumulation_steps=4,
-                learning_rate=3e-5, warmup_steps=100, logging_steps=10, save_steps=100,
+                learning_rate=5e-5, warmup_steps=100, logging_steps=10, save_steps=100,
                 eval_strategy="steps", eval_steps=100, save_total_limit=1, remove_unused_columns=False,
                 dataloader_pin_memory=False, fp16=False, dataloader_num_workers=0, weight_decay=0.01,
                 max_grad_norm=1.0, report_to=None, gradient_checkpointing=True
             )
+            # training_args = TrainingArguments(
+            #     output_dir=model_dir, overwrite_output_dir=True, num_train_epochs=3,
+            #     per_device_train_batch_size=2, per_device_eval_batch_size=2, gradient_accumulation_steps=4,
+            #     learning_rate=3e-5, warmup_steps=100, logging_steps=10, save_steps=100,
+            #     eval_strategy="steps", eval_steps=100, save_total_limit=1, remove_unused_columns=False,
+            #     dataloader_pin_memory=False, fp16=False, dataloader_num_workers=0, weight_decay=0.01,
+            #     max_grad_norm=1.0, report_to=None, gradient_checkpointing=True
+            # )
         elif training_mode == "gpu_3":  # Aggressive
             training_args = TrainingArguments(
                 output_dir=model_dir, overwrite_output_dir=True, num_train_epochs=3,

@@ -111,14 +111,15 @@ def test_jvm_model():
         
         # Load tokenizer with proper configuration
         tokenizer = AutoTokenizer.from_pretrained(model_path)
-        
+        model = AutoModelForCausalLM.from_pretrained(model_path)
+
         # Load model with stable CPU settings
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            torch_dtype=torch.float32,
-            device_map=None,
-            low_cpu_mem_usage=True
-        )
+        # model = AutoModelForCausalLM.from_pretrained(
+        #     model_path,
+        #     torch_dtype=torch.float32,
+        #     device_map=None,
+        #     low_cpu_mem_usage=True
+        # )
         
         # Set model to evaluation mode
         model.eval()

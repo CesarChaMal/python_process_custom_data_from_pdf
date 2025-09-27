@@ -98,14 +98,15 @@ def quick_test():
         
         # Load tokenizer and model with stable settings
         tokenizer = AutoTokenizer.from_pretrained(model_path)
-        
+        model = AutoModelForCausalLM.from_pretrained(model_path)
+
         # Force CPU loading to avoid CUDA assertion errors
-        model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            torch_dtype=torch.float32,
-            device_map=None,
-            low_cpu_mem_usage=True
-        )
+        # model = AutoModelForCausalLM.from_pretrained(
+        #     model_path,
+        #     torch_dtype=torch.float32,
+        #     device_map=None,
+        #     low_cpu_mem_usage=True
+        # )
         
         # Set to evaluation mode for inference
         model.eval()
@@ -286,4 +287,4 @@ if __name__ == "__main__":
         print("\n\n⏹️  Batch test interrupted by user")
     except Exception as e:
         print(f"\n❌ Batch test failed: {e}")
-        print("💡 Check model files and try again")
+        print("💡 Check model files an try again")
