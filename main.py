@@ -698,41 +698,58 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
         # Handle CUDA out of memory specifically
         if "CUDA out of memory" in error_msg or "out of memory" in error_msg.lower():
             print("\n[INFO] GPU Memory Issue Detected!")
-            print("Options to resolve:")
-            print("  1. Clear GPU processes and retry with smaller batch size")
-            print("  2. Switch to CPU training")
-            print("  3. Exit and manually free GPU memory")
+            
+            # Show current memory status
+            if torch.cuda.is_available():
+                total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                allocated = torch.cuda.memory_allocated(0) / 1024**3
+                reserved = torch.cuda.memory_reserved(0) / 1024**3
+                available = total - reserved
+                print(f"[INFO] GPU Memory: {allocated:.1f}GB allocated, {reserved:.1f}GB reserved, {available:.1f}GB available of {total:.1f}GB total")
             
             import sys
             if sys.stdin.isatty():
-                while True:
+                while True:  # Unlimited retries
+                    print("\nOptions to resolve:")
+                    print("  1. Smart memory optimization (recommended for high-VRAM GPUs)")
+                    print("  2. Extreme memory efficiency (smallest possible batch)")
+                    print("  3. Switch to CPU training")
+                    print("  4. Run GPU cleanup utility")
+                    print("  5. Exit and manually free GPU memory")
+                    
                     try:
-                        choice = input("\nSelect option (1-3) [1]: ").strip()
+                        choice = input("\nSelect option (1-5) [1]: ").strip()
                         if not choice:
                             choice = '1'
                         
                         if choice == '1':
-                            print("[INFO] Clearing GPU memory and retrying...")
-                            # Clear GPU memory
+                            print("[INFO] Applying smart memory optimization...")
+                            # Clear GPU memory first
                             if torch.cuda.is_available():
                                 torch.cuda.empty_cache()
                                 torch.cuda.ipc_collect()
                                 import gc
                                 gc.collect()
                             
-                            # Kill GPU processes
-                            import subprocess
-                            try:
-                                subprocess.run(["nvidia-smi", "--gpu-reset"], capture_output=True)
-                            except:
-                                pass
-                            
-                            # Retry with extreme memory efficiency
-                            print("[INFO] Retrying with extreme memory efficiency...")
+                            # Smart optimization for high-VRAM GPUs
                             training_args.per_device_train_batch_size = 1
-                            training_args.gradient_accumulation_steps = 32
+                            training_args.gradient_accumulation_steps = 16
                             training_args.gradient_checkpointing = True
                             training_args.optim = "adafactor"
+                            training_args.dataloader_pin_memory = False
+                            training_args.dataloader_num_workers = 0
+                            
+                            # Recreate model with memory constraints
+                            del model
+                            torch.cuda.empty_cache()
+                            
+                            model = AutoModelForCausalLM.from_pretrained(
+                                base_model,
+                                torch_dtype=torch.float16,
+                                device_map="auto",
+                                low_cpu_mem_usage=True,
+                                max_memory={0: "4GB"}  # Limit model to 4GB
+                            )
                             
                             trainer = Trainer(
                                 model=model,
@@ -744,15 +761,60 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                             
                             try:
                                 trainer.train()
-                                print("[SUCCESS] Training completed with reduced memory settings!")
-                                break
+                                print("[SUCCESS] Training completed with smart optimization!")
+                                return  # Success, exit the retry loop
                             except Exception as retry_e:
-                                print(f"[ERROR] Retry failed: {retry_e}")
-                                print("[INFO] Consider using CPU training or freeing more GPU memory")
-                            print("[TIP] Run: python gpu_cleanup.py for advanced GPU cleanup")
-                            return
+                                print(f"[ERROR] Smart optimization failed: {retry_e}")
+                                print("[INFO] Try a different option or adjust settings.")
+                                continue
                                 
                         elif choice == '2':
+                            print("[INFO] Applying extreme memory efficiency...")
+                            # Clear GPU memory
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                                torch.cuda.ipc_collect()
+                                import gc
+                                gc.collect()
+                            
+                            # Extreme settings
+                            training_args.per_device_train_batch_size = 1
+                            training_args.gradient_accumulation_steps = 64
+                            training_args.gradient_checkpointing = True
+                            training_args.optim = "adafactor"
+                            training_args.dataloader_pin_memory = False
+                            training_args.dataloader_num_workers = 0
+                            
+                            # Recreate model with extreme constraints
+                            del model
+                            torch.cuda.empty_cache()
+                            
+                            model = AutoModelForCausalLM.from_pretrained(
+                                base_model,
+                                torch_dtype=torch.float16,
+                                device_map="auto",
+                                low_cpu_mem_usage=True,
+                                max_memory={0: "2GB"}  # Very conservative
+                            )
+                            
+                            trainer = Trainer(
+                                model=model,
+                                args=training_args,
+                                data_collator=data_collator,
+                                train_dataset=train_dataset,
+                                eval_dataset=eval_dataset,
+                            )
+                            
+                            try:
+                                trainer.train()
+                                print("[SUCCESS] Training completed with extreme efficiency!")
+                                return  # Success, exit the retry loop
+                            except Exception as retry_e:
+                                print(f"[ERROR] Extreme efficiency failed: {retry_e}")
+                                print("[INFO] Try a different option or consider CPU training.")
+                                continue
+                                
+                        elif choice == '3':
                             print("[INFO] Switching to CPU training...")
                             # Move model to CPU
                             model = model.cpu()
@@ -772,36 +834,64 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                             try:
                                 trainer.train()
                                 print("[SUCCESS] Training completed on CPU!")
-                                break
+                                return  # Success, exit
                             except Exception as cpu_e:
                                 print(f"[ERROR] CPU training failed: {cpu_e}")
                                 return
                                 
-                        elif choice == '3':
+                        elif choice == '4':
+                            print("[INFO] Running GPU cleanup utility...")
+                            import subprocess
+                            try:
+                                subprocess.run(["python", "gpu_cleanup.py"], check=True)
+                            except:
+                                print("[ERROR] Could not run gpu_cleanup.py")
+                                print("[TIP] Run manually: python gpu_cleanup.py")
+                            continue  # Go back to options
+                            
+                        elif choice == '5':
                             print("[INFO] Exiting. Please free GPU memory manually and retry.")
                             print("[TIP] Run: nvidia-smi to check GPU processes")
                             print("[TIP] Kill processes with: kill -9 <PID>")
+                            print("[TIP] Run: python gpu_cleanup.py for automated cleanup")
                             return
                         else:
-                            print("Please enter 1, 2, or 3")
+                            print("Please enter 1, 2, 3, 4, or 5")
+                            continue
                             
                     except (EOFError, KeyboardInterrupt):
-                        print("\n[INFO] Using default option 1 (retry with smaller batch)")
+                        print("\n[INFO] Using default option 1 (smart optimization)")
                         choice = '1'
                         continue
+                # This line will never be reached due to infinite loop
             else:
-                # Non-interactive fallback
-                print("[INFO] Non-interactive mode: Retrying with extreme memory efficiency...")
+                # Non-interactive fallback - try smart optimization first
+                print("[INFO] Non-interactive mode: Trying smart memory optimization...")
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                     torch.cuda.ipc_collect()
                     import gc
                     gc.collect()
                 
+                # Smart optimization settings
                 training_args.per_device_train_batch_size = 1
-                training_args.gradient_accumulation_steps = 32
+                training_args.gradient_accumulation_steps = 16
                 training_args.gradient_checkpointing = True
                 training_args.optim = "adafactor"
+                training_args.dataloader_pin_memory = False
+                training_args.dataloader_num_workers = 0
+                
+                # Recreate model with memory limit
+                del model
+                torch.cuda.empty_cache()
+                
+                model = AutoModelForCausalLM.from_pretrained(
+                    base_model,
+                    torch_dtype=torch.float16,
+                    device_map="auto",
+                    low_cpu_mem_usage=True,
+                    max_memory={0: "4GB"}
+                )
                 
                 trainer = Trainer(
                     model=model,
@@ -813,9 +903,10 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                 
                 try:
                     trainer.train()
-                    print("[SUCCESS] Training completed with reduced memory settings!")
+                    print("[SUCCESS] Training completed with smart optimization!")
                 except Exception as retry_e:
-                    print(f"[ERROR] Retry failed: {retry_e}")
+                    print(f"[ERROR] Smart optimization failed: {retry_e}")
+                    print("[INFO] Run interactively for more options: python main.py")
                     return
         else:
             print("[INFO] This might be due to:")
