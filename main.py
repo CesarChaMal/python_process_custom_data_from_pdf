@@ -281,19 +281,30 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                 print("  2. DialoGPT-medium (345M params) - Balanced, 4-6GB VRAM")
                 print("  3. DialoGPT-large (774M params) - Best quality, 8-12GB VRAM")
                 
-                while True:
-                    choice = input("\nSelect model (1, 2, or 3): ").strip()
-                    if choice == '1':
-                        base_model = 'microsoft/DialoGPT-small'
-                        break
-                    elif choice == '2':
-                        base_model = 'microsoft/DialoGPT-medium'
-                        break
-                    elif choice == '3':
-                        base_model = 'microsoft/DialoGPT-large'
-                        break
-                    else:
-                        print("Please enter 1, 2, or 3")
+                import sys
+                if sys.stdin.isatty():
+                    for attempt in range(3):
+                        try:
+                            choice = input("\nSelect model (1, 2, or 3) [default: 2]: ").strip()
+                            if not choice:  # Default to medium
+                                choice = '2'
+                            if choice == '1':
+                                base_model = 'microsoft/DialoGPT-small'
+                                break
+                            elif choice == '2':
+                                base_model = 'microsoft/DialoGPT-medium'
+                                break
+                            elif choice == '3':
+                                base_model = 'microsoft/DialoGPT-large'
+                                break
+                            else:
+                                print("Please enter 1, 2, or 3")
+                        except (EOFError, KeyboardInterrupt):
+                            break
+                
+                if not base_model:
+                    base_model = 'microsoft/DialoGPT-medium'
+                    print("[INFO] Using default: DialoGPT-medium")
             else:
                 base_model = 'microsoft/DialoGPT-small'
                 print(f"[INFO] Auto-selected DialoGPT-small (limited GPU memory: {available:.1f}GB)")
@@ -303,17 +314,28 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
             print("  1. DialoGPT-small (117M params) - Recommended for CPU")
             print("  2. DialoGPT-medium (345M params) - Slower on CPU")
             
-            while True:
-                choice = input("\nSelect model (1 or 2): ").strip()
-                if choice == '1':
-                    base_model = 'microsoft/DialoGPT-small'
-                    break
-                elif choice == '2':
-                    base_model = 'microsoft/DialoGPT-medium'
-                    print("[WARNING] Medium model will be slow on CPU")
-                    break
-                else:
-                    print("Please enter 1 or 2")
+            import sys
+            if sys.stdin.isatty():
+                for attempt in range(3):
+                    try:
+                        choice = input("\nSelect model (1 or 2) [default: 1]: ").strip()
+                        if not choice:  # Default to small
+                            choice = '1'
+                        if choice == '1':
+                            base_model = 'microsoft/DialoGPT-small'
+                            break
+                        elif choice == '2':
+                            base_model = 'microsoft/DialoGPT-medium'
+                            print("[WARNING] Medium model will be slow on CPU")
+                            break
+                        else:
+                            print("Please enter 1 or 2")
+                    except (EOFError, KeyboardInterrupt):
+                        break
+            
+            if not base_model:
+                base_model = 'microsoft/DialoGPT-small'
+                print("[INFO] Using default: DialoGPT-small")
     
     finetune_method = os.getenv('FINETUNE_METHOD', 'full')  # Full fine-tuning by default
     model_name = "jvm_troubleshooting_model"
@@ -424,7 +446,9 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
     # =============================================================================
     
     def get_training_config():
-        """Interactive training configuration selection"""
+        """Interactive training configuration selection with fallback"""
+        import sys
+        
         if torch.cuda.is_available():
             print("\n[INFO] Training Configuration (GPU):")
             print("  1. Conservative - Safe for any GPU (2GB+ VRAM)")
@@ -432,24 +456,47 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
             print("  3. Aggressive - High performance (10GB+ VRAM)")
             print("  4. Extreme - Maximum memory efficiency (any VRAM)")
             
-            while True:
-                choice = input("\nSelect training mode (1-4): ").strip()
-                if choice in ['1', '2', '3', '4']:
-                    return f"gpu_{choice}"
-                print("Please enter 1, 2, 3, or 4")
+            # Check if running in interactive mode
+            if sys.stdin.isatty():
+                for attempt in range(3):
+                    try:
+                        choice = input("\nSelect training mode (1-4) [default: 2]: ").strip()
+                        if not choice:  # Default to balanced
+                            choice = '2'
+                        if choice in ['1', '2', '3', '4']:
+                            return f"gpu_{choice}"
+                        print("Please enter 1, 2, 3, or 4")
+                    except (EOFError, KeyboardInterrupt):
+                        break
+            
+            # Fallback to balanced mode
+            print("[INFO] Using default: Balanced mode (gpu_2)")
+            return "gpu_2"
         else:
             print("\n[INFO] Training Configuration (CPU):")
             print("  1. Fast - Minimal training for quick results")
             print("  2. Quality - Better training with more time")
             
-            while True:
-                choice = input("\nSelect training mode (1-2): ").strip()
-                if choice in ['1', '2']:
-                    return f"cpu_{choice}"
-                print("Please enter 1 or 2")
+            if sys.stdin.isatty():
+                for attempt in range(3):
+                    try:
+                        choice = input("\nSelect training mode (1-2) [default: 1]: ").strip()
+                        if not choice:  # Default to fast
+                            choice = '1'
+                        if choice in ['1', '2']:
+                            return f"cpu_{choice}"
+                        print("Please enter 1 or 2")
+                    except (EOFError, KeyboardInterrupt):
+                        break
+            
+            # Fallback to fast mode
+            print("[INFO] Using default: Fast mode (cpu_1)")
+            return "cpu_1"
     
     # Get training configuration early
-    training_mode = os.getenv('TRAINING_MODE') or get_training_config()
+    training_mode = os.getenv('TRAINING_MODE')
+    if not training_mode:
+        training_mode = get_training_config()
     print(f"[INFO] Training mode: {training_mode}")
     
     # =============================================================================
@@ -645,25 +692,150 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
         print("[SUCCESS] Training completed successfully!")
         
     except Exception as e:
-        print(f"[ERROR] Training failed: {e}")
-        print("[INFO] This might be due to:")
-        print("  - Insufficient GPU/CPU memory")
-        print("  - Corrupted training data")
-        print("  - Hardware compatibility issues")
-        return
+        error_msg = str(e)
+        print(f"[ERROR] Training failed: {error_msg}")
+        
+        # Handle CUDA out of memory specifically
+        if "CUDA out of memory" in error_msg or "out of memory" in error_msg.lower():
+            print("\n[INFO] GPU Memory Issue Detected!")
+            print("Options to resolve:")
+            print("  1. Clear GPU processes and retry with smaller batch size")
+            print("  2. Switch to CPU training")
+            print("  3. Exit and manually free GPU memory")
+            
+            import sys
+            if sys.stdin.isatty():
+                while True:
+                    try:
+                        choice = input("\nSelect option (1-3) [1]: ").strip()
+                        if not choice:
+                            choice = '1'
+                        
+                        if choice == '1':
+                            print("[INFO] Clearing GPU memory and retrying...")
+                            # Clear GPU memory
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                                torch.cuda.ipc_collect()
+                                import gc
+                                gc.collect()
+                            
+                            # Kill GPU processes
+                            import subprocess
+                            try:
+                                subprocess.run(["nvidia-smi", "--gpu-reset"], capture_output=True)
+                            except:
+                                pass
+                            
+                            # Retry with extreme memory efficiency
+                            print("[INFO] Retrying with extreme memory efficiency...")
+                            training_args.per_device_train_batch_size = 1
+                            training_args.gradient_accumulation_steps = 32
+                            training_args.gradient_checkpointing = True
+                            training_args.optim = "adafactor"
+                            
+                            trainer = Trainer(
+                                model=model,
+                                args=training_args,
+                                data_collator=data_collator,
+                                train_dataset=train_dataset,
+                                eval_dataset=eval_dataset,
+                            )
+                            
+                            try:
+                                trainer.train()
+                                print("[SUCCESS] Training completed with reduced memory settings!")
+                                break
+                            except Exception as retry_e:
+                                print(f"[ERROR] Retry failed: {retry_e}")
+                                print("[INFO] Consider using CPU training or freeing more GPU memory")
+                            print("[TIP] Run: python gpu_cleanup.py for advanced GPU cleanup")
+                            return
+                                
+                        elif choice == '2':
+                            print("[INFO] Switching to CPU training...")
+                            # Move model to CPU
+                            model = model.cpu()
+                            training_args.use_cpu = True
+                            training_args.fp16 = False
+                            training_args.per_device_train_batch_size = 1
+                            training_args.gradient_accumulation_steps = 8
+                            
+                            trainer = Trainer(
+                                model=model,
+                                args=training_args,
+                                data_collator=data_collator,
+                                train_dataset=train_dataset,
+                                eval_dataset=eval_dataset,
+                            )
+                            
+                            try:
+                                trainer.train()
+                                print("[SUCCESS] Training completed on CPU!")
+                                break
+                            except Exception as cpu_e:
+                                print(f"[ERROR] CPU training failed: {cpu_e}")
+                                return
+                                
+                        elif choice == '3':
+                            print("[INFO] Exiting. Please free GPU memory manually and retry.")
+                            print("[TIP] Run: nvidia-smi to check GPU processes")
+                            print("[TIP] Kill processes with: kill -9 <PID>")
+                            return
+                        else:
+                            print("Please enter 1, 2, or 3")
+                            
+                    except (EOFError, KeyboardInterrupt):
+                        print("\n[INFO] Using default option 1 (retry with smaller batch)")
+                        choice = '1'
+                        continue
+            else:
+                # Non-interactive fallback
+                print("[INFO] Non-interactive mode: Retrying with extreme memory efficiency...")
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.ipc_collect()
+                    import gc
+                    gc.collect()
+                
+                training_args.per_device_train_batch_size = 1
+                training_args.gradient_accumulation_steps = 32
+                training_args.gradient_checkpointing = True
+                training_args.optim = "adafactor"
+                
+                trainer = Trainer(
+                    model=model,
+                    args=training_args,
+                    data_collator=data_collator,
+                    train_dataset=train_dataset,
+                    eval_dataset=eval_dataset,
+                )
+                
+                try:
+                    trainer.train()
+                    print("[SUCCESS] Training completed with reduced memory settings!")
+                except Exception as retry_e:
+                    print(f"[ERROR] Retry failed: {retry_e}")
+                    return
+        else:
+            print("[INFO] This might be due to:")
+            print("  - Corrupted training data")
+            print("  - Hardware compatibility issues")
+            print("  - Model configuration problems")
+            return
     
-        # Save final model
-        print("[INFO] Saving trained model...")
-        trainer.save_model()
-        tokenizer.save_pretrained(model_dir)
-        
-        # Save training metrics
-        if hasattr(trainer.state, 'log_history'):
-            import json
-            with open(f"{model_dir}/training_log.json", "w") as f:
-                json.dump(trainer.state.log_history, f, indent=2)
-        
-        print(f"[SUCCESS] Model saved to {model_dir}")
+    # Save final model (moved outside try block)
+    print("[INFO] Saving trained model...")
+    trainer.save_model()
+    tokenizer.save_pretrained(model_dir)
+    
+    # Save training metrics
+    if hasattr(trainer.state, 'log_history'):
+        import json
+        with open(f"{model_dir}/training_log.json", "w") as f:
+            json.dump(trainer.state.log_history, f, indent=2)
+    
+    print(f"[SUCCESS] Model saved to {model_dir}")
 
 
     # =============================================================================
@@ -903,6 +1075,11 @@ def main():
     print("   • Test model performance with sample questions")
     print("   • Fine-tune training parameters if needed")
     print("   • Deploy model for production use")
+    
+    if not train_model or not os.path.exists("./models/jvm_troubleshooting_model"):
+        print("\n🔧 Training Issues?")
+        print("   • Run: python gpu_cleanup.py (for GPU memory issues)")
+        print("   • Set TRAIN_MODEL=true in .env to enable training")
     
     print("\n✨ Thank you for using the PDF to Q&A Generator!")
 
