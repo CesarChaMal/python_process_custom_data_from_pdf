@@ -944,7 +944,6 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                             if torch.cuda.is_available():
                                 torch.cuda.empty_cache()
                             # Reset training mode and restart
-                            import os
                             if 'TRAINING_MODE' in os.environ:
                                 del os.environ['TRAINING_MODE']
                             return train_and_upload_model(dataset_dict, auth_token, username)

@@ -56,38 +56,83 @@ PDF Document → Text Extraction → AI-Generated Q&A → Dataset Creation → M
 
 ## Prerequisites
 
-- Python 3.8+
-- AI Provider:
+### System Requirements
+- **Operating Systems**: Pop!_OS, Ubuntu, Windows (Git Bash), WSL Ubuntu, macOS, Linux
+- **Python 3.8+** with pip
+- **AI Provider**:
   - **Ollama**: Running locally on port 11434
   - **OpenAI**: Valid API key
-- Hugging Face account and token (optional)
+- **Hugging Face account and token** (optional for model/dataset upload)
+
+### Platform-Specific Notes
+- **Pop!_OS/Ubuntu**: Native support, all features available
+- **Windows Git Bash**: Full compatibility, uses Windows Python paths
+- **WSL Ubuntu**: Native Linux environment, GPU passthrough supported
+- **macOS/Linux**: Standard Unix environment support
 
 ## Quick Start
 
+### Pop!_OS / Ubuntu / WSL Ubuntu
 ```bash
 # Clone and setup
 git clone <repository-url>
 cd python_process_custom_data_from_pdf
 
 # Run setup script
-./run.sh        # Linux/Mac
-# or
-run.bat         # Windows
+./run.sh
+```
+
+### Windows Git Bash
+```bash
+# Clone and setup
+git clone <repository-url>
+cd python_process_custom_data_from_pdf
+
+# Run setup script (Git Bash automatically detects Windows)
+./run.sh
+```
+
+### Alternative Windows (Command Prompt)
+```cmd
+# Clone and setup
+git clone <repository-url>
+cd python_process_custom_data_from_pdf
+
+# Run setup script
+run.bat
 ```
 
 ## Manual Setup
 
+### Pop!_OS / Ubuntu / WSL Ubuntu / macOS / Linux
 ```bash
 # Create virtual environment
-python -m venv .venv
-source .venv/Scripts/activate  # Windows
-# source .venv/bin/activate    # Linux/Mac
+python3 -m venv .venv
+source .venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
 
 # Configure environment
 cp .env.example .env
+# Edit .env with your configuration
+
+# Run the application
+python main.py
+```
+
+### Windows (Git Bash / Command Prompt)
+```bash
+# Create virtual environment
+python -m venv .venv
+source .venv/Scripts/activate  # Git Bash
+# .venv\Scripts\activate.bat    # Command Prompt
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Configure environment
+copy .env.example .env
 # Edit .env with your configuration
 
 # Run the application
@@ -117,12 +162,25 @@ HUGGING_FACE_HUB_TOKEN=your_hf_token_here
 
 ## Usage Examples
 
-### Example 1: Using Ollama (Default)
+### Example 1: Using Ollama (Default) - Pop!_OS/Ubuntu/WSL
 ```bash
 # 1. Start Ollama
 ollama serve
 
 # 2. Configure .env
+echo "AI_PROVIDER=ollama" > .env
+echo "HUGGING_FACE_HUB_TOKEN=hf_xxx" >> .env
+
+# 3. Run
+./run.sh
+```
+
+### Example 1b: Using Ollama - Windows Git Bash
+```bash
+# 1. Start Ollama (in separate terminal)
+ollama serve
+
+# 2. Configure .env (Git Bash)
 echo "AI_PROVIDER=ollama" > .env
 echo "HUGGING_FACE_HUB_TOKEN=hf_xxx" >> .env
 
@@ -286,18 +344,53 @@ curl http://localhost:11434/api/tags
 python test_model.py
 ```
 
+### GPU Memory Management
+
+The system now includes **intelligent GPU memory analysis** and **automatic error recovery**:
+
+#### 🤖 AI-Powered Error Resolution
+When training fails due to GPU memory issues, the system:
+- **Analyzes your hardware** (GPU model, memory usage, available VRAM)
+- **Tracks failure patterns** (attempt count, error types, model compatibility)
+- **Provides smart recommendations** based on your specific situation
+- **Offers unlimited retry attempts** with different strategies
+
+#### 🔧 GPU Memory Recovery Options
+1. **Smart memory optimization** - For high-VRAM GPUs (8GB+)
+2. **Extreme memory efficiency** - Ultra-conservative settings
+3. **CPU training fallback** - Automatic CPU switching
+4. **GPU cleanup utility** - `python gpu_cleanup.py`
+5. **Model/config changes** - Return to selection menus
+6. **Skip to testing** - Test existing models without retraining
+
+#### 📊 System Analysis Features
+```
+🔍 System Analysis:
+  • GPU: NVIDIA GeForce RTX 4090
+  • Memory Usage: 49.4% of total capacity
+  • Available Memory: 7.9GB (50.6%)
+  • Failure Attempt: #1
+  • Model Size: microsoft/DialoGPT-large (~774M params)
+
+🤖 AI Recommendations:
+  1. Option 1: Smart memory optimization - You have sufficient VRAM
+  2. Option 4: GPU cleanup utility - Clear background processes first
+  3. Option 2: Extreme memory efficiency - Conservative approach
+
+💡 Recommended: Option 1
+```
+
 ### Common Issues
 - **Ollama not running**: Start with `ollama serve`
 - **Model not found**: Pull with `ollama pull model-name`
 - **OpenAI errors**: Check API key and billing
 - **HF upload fails**: Verify token permissions
-- **Unicode encoding errors**: Fixed in latest version (removed all emoji characters)
-- **Large model files**: Use Hugging Face Hub for model storage (local models excluded from Git)
-- **Model generates poor responses**: The default model is now DialoGPT-medium for better quality. Use conversation memory in `test_model.py` for context-aware responses
-- **Model testing fails**: Run `python model_utils.py recover` to restore model from Hugging Face
-- **Git push failures**: Large model files are excluded via .gitignore
-- **Missing model files**: Use model recovery utility to download from Hugging Face Hub
-- **Poor conversation flow**: Use `python test_model.py` which includes conversation memory for better context understanding
+- **CUDA out of memory**: Use the intelligent error recovery system
+- **Training hangs**: The system now provides non-interactive fallbacks
+- **GPU processes blocking**: Use `python gpu_cleanup.py` for automated cleanup
+- **Model too large for GPU**: System recommends smaller models automatically
+- **Repeated training failures**: AI suggests CPU training or model changes
+- **Virtual environment corruption**: Robust cleanup handles stubborn files
 
 ### Model Recovery
 
@@ -313,17 +406,45 @@ python model_utils.py download  # Download from Hugging Face
 python model_utils.py test      # Test if model loads correctly
 ```
 
+### GPU Cleanup Utility
+
+For advanced GPU memory management:
+
+```bash
+# Interactive GPU cleanup tool
+python gpu_cleanup.py
+```
+
+**Features:**
+- Clear PyTorch GPU memory cache
+- Show current GPU processes
+- Kill Python GPU processes
+- Reset GPU (requires admin)
+- Full cleanup automation
+
 **Why models go missing**: Large model files are excluded from Git to prevent repository size issues. The trained models are automatically uploaded to Hugging Face Hub and can be recovered from there.
 
-## Model Quality Improvements
+## Advanced Features
 
-The pipeline now includes several improvements for better model performance:
+### Intelligent Training Management
+- **AI-Powered Error Analysis**: Automatic hardware analysis and failure pattern recognition
+- **Smart Recommendations**: Context-aware suggestions based on your specific setup
+- **Unlimited Retry System**: Keep trying different strategies until success
+- **Dynamic Memory Management**: Automatic model size and batch size optimization
+- **Fallback Strategies**: CPU training, model changes, and testing options
 
+### Model Quality Improvements
 - **Better Default Model**: DialoGPT-medium (345M parameters) instead of small (117M)
 - **Improved Training**: Lower learning rate, gradient clipping, more epochs
 - **Longer Context**: 768 tokens vs 512 for better understanding
 - **Conversation Memory**: Interactive testing remembers conversation history
 - **Better Data Processing**: Enhanced filtering and preprocessing
+
+### Robust Environment Management
+- **Advanced Virtual Environment Cleanup**: Handles stubborn files and process locks
+- **Cross-Platform Compatibility**: Works on Windows, Linux, and macOS
+- **Process Management**: Automatic cleanup of conflicting Python processes
+- **Memory Optimization**: GPU memory fragmentation detection and resolution
 
 ## References
 
