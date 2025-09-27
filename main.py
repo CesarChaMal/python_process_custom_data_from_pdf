@@ -346,12 +346,17 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
         base_model = select_base_model()
     
     finetune_method = os.getenv('FINETUNE_METHOD', 'full')  # Full fine-tuning by default
-    model_name = "jvm_troubleshooting_model"
+    
+    # Create descriptive model name with base model and method info
+    base_model_short = base_model.split('/')[-1].lower()  # e.g., "dialogpt-medium"
+    method_suffix = "lora" if finetune_method == "lora" else "full"
+    model_name = f"jvm_troubleshooting_{base_model_short}_{method_suffix}"
     model_id = f"{username}/{model_name}"
     
     print(f"[INFO] Base model: {base_model}")
     print(f"[INFO] Fine-tuning method: {finetune_method}")
     print(f"[INFO] Target model ID: {model_id}")
+    print(f"[INFO] Model name format: jvm_troubleshooting_<base>_<method>")
     
     # Create local model directory
     model_dir = f"./models/{model_name}"

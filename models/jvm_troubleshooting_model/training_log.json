@@ -21,9 +21,9 @@
     "step": 30
   },
   {
-    "train_runtime": 102.9215,
-    "train_samples_per_second": 2.915,
-    "train_steps_per_second": 0.379,
+    "train_runtime": 105.4702,
+    "train_samples_per_second": 2.844,
+    "train_steps_per_second": 0.37,
     "total_flos": 979278888960000.0,
     "train_loss": 175.40715144230768,
     "epoch": 3.0,
