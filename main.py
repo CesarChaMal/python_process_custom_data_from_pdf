@@ -420,6 +420,39 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
         print("[INFO] Using full fine-tuning (all parameters will be updated)")
     
     # =============================================================================
+    # TRAINING CONFIGURATION
+    # =============================================================================
+    
+    def get_training_config():
+        """Interactive training configuration selection"""
+        if torch.cuda.is_available():
+            print("\n[INFO] Training Configuration (GPU):")
+            print("  1. Conservative - Safe for any GPU (2GB+ VRAM)")
+            print("  2. Balanced - Good performance/memory trade-off (6GB+ VRAM)")
+            print("  3. Aggressive - High performance (10GB+ VRAM)")
+            print("  4. Extreme - Maximum memory efficiency (any VRAM)")
+            
+            while True:
+                choice = input("\nSelect training mode (1-4): ").strip()
+                if choice in ['1', '2', '3', '4']:
+                    return f"gpu_{choice}"
+                print("Please enter 1, 2, 3, or 4")
+        else:
+            print("\n[INFO] Training Configuration (CPU):")
+            print("  1. Fast - Minimal training for quick results")
+            print("  2. Quality - Better training with more time")
+            
+            while True:
+                choice = input("\nSelect training mode (1-2): ").strip()
+                if choice in ['1', '2']:
+                    return f"cpu_{choice}"
+                print("Please enter 1 or 2")
+    
+    # Get training configuration early
+    training_mode = os.getenv('TRAINING_MODE') or get_training_config()
+    print(f"[INFO] Training mode: {training_mode}")
+    
+    # =============================================================================
     # DATA PREPROCESSING
     # =============================================================================
     
@@ -483,38 +516,6 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
     print(f"[INFO] Training samples: {len(train_dataset)}")
     print(f"[INFO] Evaluation samples: {len(eval_dataset)}")
     
-    # =============================================================================
-    # TRAINING CONFIGURATION
-    # =============================================================================
-    
-    def get_training_config():
-        """Interactive training configuration selection"""
-        if torch.cuda.is_available():
-            print("\n[INFO] Training Configuration (GPU):")
-            print("  1. Conservative - Safe for any GPU (2GB+ VRAM)")
-            print("  2. Balanced - Good performance/memory trade-off (6GB+ VRAM)")
-            print("  3. Aggressive - High performance (10GB+ VRAM)")
-            print("  4. Extreme - Maximum memory efficiency (any VRAM)")
-            
-            while True:
-                choice = input("\nSelect training mode (1-4): ").strip()
-                if choice in ['1', '2', '3', '4']:
-                    return f"gpu_{choice}"
-                print("Please enter 1, 2, 3, or 4")
-        else:
-            print("\n[INFO] Training Configuration (CPU):")
-            print("  1. Fast - Minimal training for quick results")
-            print("  2. Quality - Better training with more time")
-            
-            while True:
-                choice = input("\nSelect training mode (1-2): ").strip()
-                if choice in ['1', '2']:
-                    return f"cpu_{choice}"
-                print("Please enter 1 or 2")
-    
-    # Get training configuration
-    training_mode = os.getenv('TRAINING_MODE') or get_training_config()
-    
     # Configure training arguments based on mode
     if finetune_method == "lora":
         # LoRA configuration
@@ -546,7 +547,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                 per_device_train_batch_size=1, per_device_eval_batch_size=1, gradient_accumulation_steps=8,
                 learning_rate=5e-5, warmup_steps=50, logging_steps=20, save_steps=200,
                 eval_strategy="steps", eval_steps=200, save_total_limit=1, remove_unused_columns=False,
-                dataloader_pin_memory=False, fp16=True, dataloader_num_workers=0, weight_decay=0.01,
+                dataloader_pin_memory=False, fp16=False, dataloader_num_workers=0, weight_decay=0.01,
                 max_grad_norm=1.0, report_to=None, gradient_checkpointing=True, optim="adafactor"
             )
         elif training_mode == "gpu_2":  # Balanced
@@ -555,7 +556,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                 per_device_train_batch_size=2, per_device_eval_batch_size=2, gradient_accumulation_steps=4,
                 learning_rate=3e-5, warmup_steps=100, logging_steps=10, save_steps=100,
                 eval_strategy="steps", eval_steps=100, save_total_limit=1, remove_unused_columns=False,
-                dataloader_pin_memory=False, fp16=True, dataloader_num_workers=0, weight_decay=0.01,
+                dataloader_pin_memory=False, fp16=False, dataloader_num_workers=0, weight_decay=0.01,
                 max_grad_norm=1.0, report_to=None, gradient_checkpointing=True
             )
         elif training_mode == "gpu_3":  # Aggressive
@@ -564,7 +565,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                 per_device_train_batch_size=4, per_device_eval_batch_size=4, gradient_accumulation_steps=2,
                 learning_rate=3e-5, warmup_steps=100, logging_steps=10, save_steps=100,
                 eval_strategy="steps", eval_steps=100, save_total_limit=2, remove_unused_columns=False,
-                dataloader_pin_memory=False, fp16=True, dataloader_num_workers=0, weight_decay=0.01,
+                dataloader_pin_memory=False, fp16=False, dataloader_num_workers=0, weight_decay=0.01,
                 max_grad_norm=1.0, report_to=None
             )
         elif training_mode == "gpu_4":  # Extreme
@@ -573,7 +574,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                 per_device_train_batch_size=1, per_device_eval_batch_size=1, gradient_accumulation_steps=16,
                 learning_rate=3e-5, warmup_steps=100, logging_steps=10, save_steps=100,
                 eval_strategy="steps", eval_steps=100, save_total_limit=1, remove_unused_columns=False,
-                dataloader_pin_memory=False, fp16=True, dataloader_num_workers=0, weight_decay=0.01,
+                dataloader_pin_memory=False, fp16=False, dataloader_num_workers=0, weight_decay=0.01,
                 max_grad_norm=1.0, report_to=None, gradient_checkpointing=True, optim="adafactor"
             )
         elif training_mode == "cpu_1":  # Fast CPU
@@ -594,8 +595,6 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                 dataloader_pin_memory=False, fp16=False, dataloader_num_workers=0, weight_decay=0.01,
                 max_grad_norm=1.0, report_to=None, use_cpu=True
             )
-    
-    print(f"[INFO] Training mode: {training_mode}")
     
     # Data collator for causal language modeling
     data_collator = DataCollatorForLanguageModeling(

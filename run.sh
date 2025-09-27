@@ -118,26 +118,66 @@ echo "[2/8] Setting up virtual environment..."
 # This prevents issues with corrupted or outdated environments
 if [ -d ".venv" ]; then
     echo "🗑️  Removing existing virtual environment for clean setup..."
-    # Force remove with multiple attempts to handle stubborn directories
-    chmod -R u+w .venv 2>/dev/null || true
-    rm -rf .venv 2>/dev/null || {
-        echo "⚠️  Standard removal failed, using force method..."
-        find .venv -type f -delete 2>/dev/null || true
-        find .venv -type d -empty -delete 2>/dev/null || true
-        rm -rf .venv 2>/dev/null || true
-    }
-    # Final check and manual cleanup if needed
-    if [ -d ".venv" ]; then
-        echo "⚠️  Some files remain, continuing with existing environment..."
+    
+    # Kill any processes using the venv (especially pip with pydantic locks)
+    if command -v lsof &> /dev/null; then
+        # Find and kill processes using .venv files
+        lsof +D .venv/ 2>/dev/null | awk 'NR>1 {print $2}' | sort -u | xargs -r kill -9 2>/dev/null || true
     fi
+    pkill -f ".venv" 2>/dev/null || true
+    sleep 2
+    
+    # Multiple removal strategies
+    for attempt in 1 2 3; do
+        echo "Attempt $attempt to remove .venv..."
+        
+        # Method 1: Standard removal
+        if rm -rf .venv 2>/dev/null; then
+            echo "✓ Removed successfully"
+            break
+        fi
+        
+        # Method 2: Change permissions and retry
+        chmod -R 755 .venv 2>/dev/null || true
+        if rm -rf .venv 2>/dev/null; then
+            echo "✓ Removed after permission change"
+            break
+        fi
+        
+        # Method 3: Force with find
+        find .venv -type f -exec rm -f {} + 2>/dev/null || true
+        find .venv -type d -exec rmdir {} + 2>/dev/null || true
+        
+        if [ ! -d ".venv" ]; then
+            echo "✓ Removed with find method"
+            break
+        fi
+        
+        # Method 4: Move to temp and remove (last resort)
+        if [ $attempt -eq 3 ]; then
+            temp_dir=".venv_old_$$"
+            if mv .venv "$temp_dir" 2>/dev/null; then
+                echo "⚠️  Moved to $temp_dir - will remove in background"
+                (sleep 5 && rm -rf "$temp_dir" 2>/dev/null &) || true
+            else
+                echo "⚠️  Cannot remove .venv - creating new one with different name"
+                VENV_DIR=".venv_new"
+            fi
+        fi
+        
+        sleep 2
+    done
 fi
+
+# Use alternative directory name if original couldn't be removed
+VENV_DIR="${VENV_DIR:-.venv}"
 
 # Create new virtual environment
 echo "📦 Creating fresh virtual environment..."
-$PYTHON_CMD -m venv .venv
+$PYTHON_CMD -m venv "$VENV_DIR"
 
 # Validate virtual environment creation
-if [ ! -d ".venv" ]; then
+if [ ! -d "$VENV_DIR" ]; then
     echo "❌ [ERROR] Failed to create virtual environment"
     echo "This might be due to:"
     echo "- Insufficient disk space"
@@ -161,11 +201,11 @@ echo "[3/8] Activating virtual environment..."
 if [[ "$OSTYPE" == "msys" || "$OSTYPE" == "win32" ]]; then
     # Windows environments (Git Bash, MSYS2, etc.)
     echo "🪟 Detected Windows environment"
-    source .venv/Scripts/activate
+    source "$VENV_DIR/Scripts/activate"
 else
     # Unix-like environments (Linux, macOS, WSL)
     echo "🐧 Detected Unix-like environment"
-    source .venv/bin/activate
+    source "$VENV_DIR/bin/activate"
 fi
 
 echo "✓ Virtual environment activated"
