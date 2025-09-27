@@ -262,10 +262,8 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
     # MODEL CONFIGURATION
     # =============================================================================
     
-    # Get configuration from environment variables with sensible defaults
-    base_model = os.getenv('BASE_MODEL')
-    if not base_model:
-        # Auto-select based on available hardware
+    def select_base_model():
+        """Interactive base model selection with memory analysis"""
         if torch.cuda.is_available():
             total_mem = torch.cuda.get_device_properties(0).total_memory / 1024**3
             reserved = torch.cuda.memory_reserved(0) / 1024**3
@@ -275,43 +273,35 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
             print(f"  Total: {total_mem:.1f} GB")
             print(f"  Available: {available:.1f} GB")
             
-            if available >= 4:  # Lower threshold to show menu more often
-                print("\n[INFO] Model Selection (GPU):")
-                print("  1. DialoGPT-small (117M params) - Fast, 2-4GB VRAM")
-                print("  2. DialoGPT-medium (345M params) - Balanced, 4-6GB VRAM")
-                if available >= 8:
-                    print("  3. DialoGPT-large (774M params) - Best quality, 8-12GB VRAM")
-                
-                import sys
-                if sys.stdin.isatty():
-                    for attempt in range(3):
-                        try:
-                            choice = input("\nSelect model (1, 2, or 3) [default: 2]: ").strip()
-                            if not choice:  # Default to medium
-                                choice = '2'
-                            if choice == '1':
-                                base_model = 'microsoft/DialoGPT-small'
-                                break
-                            elif choice == '2':
-                                base_model = 'microsoft/DialoGPT-medium'
-                                break
-                            elif choice == '3' and available >= 8:
-                                base_model = 'microsoft/DialoGPT-large'
-                                break
-                            elif choice == '3' and available < 8:
+            print("\n[INFO] Model Selection (GPU):")
+            print("  1. DialoGPT-small (117M params) - Fast, 2-4GB VRAM")
+            print("  2. DialoGPT-medium (345M params) - Balanced, 4-6GB VRAM")
+            print("  3. DialoGPT-large (774M params) - Best quality, 8-12GB VRAM")
+            
+            import sys
+            if sys.stdin.isatty():
+                for attempt in range(3):
+                    try:
+                        choice = input("\nSelect model (1, 2, or 3) [default: 2]: ").strip()
+                        if not choice:
+                            choice = '2'
+                        if choice == '1':
+                            return 'microsoft/DialoGPT-small'
+                        elif choice == '2':
+                            return 'microsoft/DialoGPT-medium'
+                        elif choice == '3':
+                            if available >= 8:
+                                return 'microsoft/DialoGPT-large'
+                            else:
                                 print(f"Large model requires 8GB+ available memory (you have {available:.1f}GB)")
                                 continue
-                            else:
-                                print("Please enter 1, 2, or 3")
-                        except (EOFError, KeyboardInterrupt):
-                            break
-                
-                if not base_model:
-                    base_model = 'microsoft/DialoGPT-medium'
-                    print("[INFO] Using default: DialoGPT-medium")
-            else:
-                base_model = 'microsoft/DialoGPT-small'
-                print(f"[INFO] Auto-selected DialoGPT-small (limited GPU memory: {available:.1f}GB)")
+                        else:
+                            print("Please enter 1, 2, or 3")
+                    except (EOFError, KeyboardInterrupt):
+                        break
+            
+            print("[INFO] Using default: DialoGPT-medium")
+            return 'microsoft/DialoGPT-medium'
         else:
             print("\n[INFO] CPU Mode Detected")
             print("\n[INFO] Model Selection (CPU):")
@@ -323,23 +313,25 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                 for attempt in range(3):
                     try:
                         choice = input("\nSelect model (1 or 2) [default: 1]: ").strip()
-                        if not choice:  # Default to small
+                        if not choice:
                             choice = '1'
                         if choice == '1':
-                            base_model = 'microsoft/DialoGPT-small'
-                            break
+                            return 'microsoft/DialoGPT-small'
                         elif choice == '2':
-                            base_model = 'microsoft/DialoGPT-medium'
                             print("[WARNING] Medium model will be slow on CPU")
-                            break
+                            return 'microsoft/DialoGPT-medium'
                         else:
                             print("Please enter 1 or 2")
                     except (EOFError, KeyboardInterrupt):
                         break
             
-            if not base_model:
-                base_model = 'microsoft/DialoGPT-small'
-                print("[INFO] Using default: DialoGPT-small")
+            print("[INFO] Using default: DialoGPT-small")
+            return 'microsoft/DialoGPT-small'
+    
+    # Get configuration from environment variables with sensible defaults
+    base_model = os.getenv('BASE_MODEL')
+    if not base_model:
+        base_model = select_base_model()
     
     finetune_method = os.getenv('FINETUNE_METHOD', 'full')  # Full fine-tuning by default
     model_name = "jvm_troubleshooting_model"
@@ -447,13 +439,9 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                 model = AutoModelForCausalLM.from_pretrained(base_model, **config)
                 return model
             
-            import sys
-            if sys.stdin.isatty():
-                # Temporarily disable debug logging
-                original_level = logging.getLogger().level
-                logging.getLogger().setLevel(logging.WARNING)
-                sys.stdout.flush()
-                sys.stderr.flush()
+            def handle_error_menu():
+                """Handle error recovery menu with all options"""
+                nonlocal model, trainer, training_args, data_collator, train_dataset, eval_dataset
                 
                 while True:
                     print("\n📋 Model Loading Failed - Available Options:")
@@ -479,7 +467,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                                     'max_memory': {0: "2GB"}
                                 })
                                 print("[SUCCESS] Model loaded with 2GB memory limit")
-                                break
+                                return True  # Success, continue with training
                             except Exception as retry_e:
                                 print(f"[ERROR] 2GB limit failed: {retry_e}")
                                 continue
@@ -493,7 +481,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                                 })
                                 model = model.cpu()
                                 print("[SUCCESS] Model loaded on CPU")
-                                break
+                                return True  # Success, continue with training
                             except Exception as retry_e:
                                 print(f"[ERROR] CPU loading failed: {retry_e}")
                                 continue
@@ -510,21 +498,15 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                                 continue
                         elif choice == '4':
                             print("[INFO] Returning to base model selection...")
-                            # Clear BASE_MODEL to force reselection
                             if 'BASE_MODEL' in os.environ:
                                 del os.environ['BASE_MODEL']
-                            # Clear GPU memory before restarting
-                            if torch.cuda.is_available():
-                                torch.cuda.empty_cache()
-                                torch.cuda.ipc_collect()
-                                import gc
-                                gc.collect()
-                            return train_and_upload_model(dataset_dict, auth_token, username)
+                            clear_gpu_memory()
+                            return "restart"  # Signal to restart training function
                         elif choice == '5':
                             print("[INFO] Returning to training configuration...")
                             if 'TRAINING_MODE' in os.environ:
                                 del os.environ['TRAINING_MODE']
-                            return train_and_upload_model(dataset_dict, auth_token, username)
+                            return "restart"  # Signal to restart training function
                         elif choice == '6':
                             print("[INFO] Skipping training and proceeding to model testing...")
                             model_dir = "./models/jvm_troubleshooting_model"
@@ -553,22 +535,39 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                                 print("[WARNING] No existing model found to test")
                                 print("[INFO] You can try downloading from Hugging Face:")
                                 print("  python model_utils.py recover")
-                            return
+                            return False  # Exit training
                         elif choice == '7':
                             print("[INFO] Exiting. Please free GPU memory manually and retry.")
-                            return
+                            return False  # Exit training
                         else:
                             print("Please enter 1, 2, 3, 4, 5, 6, or 7")
                             continue
                             
                     except (EOFError, KeyboardInterrupt):
                         print("\n[INFO] Using default option 4 (change model)")
-                        logging.getLogger().setLevel(original_level)
-                        return train_and_upload_model(dataset_dict, auth_token, username)
+                        if 'BASE_MODEL' in os.environ:
+                            del os.environ['BASE_MODEL']
+                        clear_gpu_memory()
+                        return "restart"
+            
+            import sys
+            if sys.stdin.isatty():
+                # Temporarily disable debug logging
+                original_level = logging.getLogger().level
+                logging.getLogger().setLevel(logging.WARNING)
+                sys.stdout.flush()
+                sys.stderr.flush()
                 
+                result = handle_error_menu()
                 logging.getLogger().setLevel(original_level)
-                print("[INFO] Continuing with selected option...")
-                return
+                
+                if result == "restart":
+                    return train_and_upload_model(dataset_dict, auth_token, username)
+                elif result == True:
+                    print("[INFO] Continuing with selected option...")
+                    # Continue with training setup below
+                else:
+                    return  # Exit training
             else:
                 print("[INFO] Non-interactive mode: Model loading failed")
                 return
@@ -1211,10 +1210,13 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
             # Handle any other training error with same comprehensive options
             print("\n[INFO] Training Error Detected!")
             
-            import sys
-            if sys.stdin.isatty():
-                while True:  # Unlimited retries for any error
-                    print("\n📋 All Available Options:")
+            # Reuse the same error handling menu function
+            def handle_training_error_menu():
+                """Handle training error recovery menu"""
+                nonlocal model, trainer, training_args, data_collator, train_dataset, eval_dataset
+                
+                while True:
+                    print("\n📋 Training Failed - Available Options:")
                     print("  1. Smart memory optimization (recommended for high-VRAM GPUs)")
                     print("  2. Extreme memory efficiency (smallest possible batch)")
                     print("  3. Switch to CPU training")
@@ -1225,115 +1227,40 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                     print("  8. Exit and manually free GPU memory")
                     
                     try:
-                        choice = input("\nSelect option (1-8) [5]: ").strip()
-                        if not choice:
-                            choice = '5'  # Default to changing model for general errors
+                        choice = input("\nSelect option (1-8) [5]: ").strip() or '5'
                         
-                        if choice == '5':
-                            print("[INFO] Returning to base model selection...")
-                            del model
-                            if torch.cuda.is_available():
-                                torch.cuda.empty_cache()
-                            return train_and_upload_model(dataset_dict, auth_token, username)
-                        elif choice == '6':
-                            print("[INFO] Returning to training configuration...")
-                            del model
-                            if torch.cuda.is_available():
-                                torch.cuda.empty_cache()
-                            if 'TRAINING_MODE' in os.environ:
-                                del os.environ['TRAINING_MODE']
-                            return train_and_upload_model(dataset_dict, auth_token, username)
-                        elif choice == '7':
-                            print("[INFO] Skipping training and proceeding to model testing...")
-                            model_dir = "./models/jvm_troubleshooting_model"
-                            if os.path.exists(model_dir):
-                                print(f"[INFO] Found existing model at {model_dir}")
-                                print("\n🧪 Model Testing Options:")
-                                print("  1. Interactive testing with conversation memory (test_model.py)")
-                                print("  2. Quick batch testing (quick_test.py)")
-                                print("  3. Skip testing")
-                                
-                                try:
-                                    test_choice = input("\nChoose testing option (1-3) [1]: ").strip()
-                                    if not test_choice:
-                                        test_choice = '1'
-                                    
-                                    if test_choice == '1':
-                                        print("[INFO] Starting interactive testing...")
-                                        import subprocess
-                                        subprocess.run(["python", "test_model.py"])
-                                    elif test_choice == '2':
-                                        print("[INFO] Starting quick batch testing...")
-                                        import subprocess
-                                        subprocess.run(["python", "quick_test.py"])
-                                    elif test_choice == '3':
-                                        print("[INFO] Skipping testing")
-                                    
-                                except (EOFError, KeyboardInterrupt):
-                                    print("\n[INFO] Testing skipped")
-                            else:
-                                print("[WARNING] No existing model found to test")
-                                print("[INFO] You can try downloading from Hugging Face:")
-                                print("  python model_utils.py recover")
-                            return
-                        elif choice == '8':
-                            print("[INFO] Exiting. Check the error message above for details.")
-                            return
-                        elif choice == '1':
-                            print("[INFO] Applying smart memory optimization...")
+                        if choice in ['1', '2']:
+                            memory_limit = "4GB" if choice == '1' else "2GB"
+                            batch_steps = 16 if choice == '1' else 64
+                            print(f"[INFO] Applying {'smart' if choice == '1' else 'extreme'} memory optimization...")
+                            
                             if torch.cuda.is_available():
                                 torch.cuda.empty_cache()
                                 torch.cuda.ipc_collect()
                                 import gc
                                 gc.collect()
+                            
                             training_args.per_device_train_batch_size = 1
-                            training_args.gradient_accumulation_steps = 16
+                            training_args.gradient_accumulation_steps = batch_steps
                             training_args.gradient_checkpointing = True
                             training_args.optim = "adafactor"
                             training_args.dataloader_pin_memory = False
                             training_args.dataloader_num_workers = 0
+                            
                             del model
                             torch.cuda.empty_cache()
                             model = AutoModelForCausalLM.from_pretrained(
                                 base_model, torch_dtype=torch.float16, device_map="auto",
-                                low_cpu_mem_usage=True, max_memory={0: "4GB"}
+                                low_cpu_mem_usage=True, max_memory={0: memory_limit}
                             )
                             trainer = Trainer(model=model, args=training_args, data_collator=data_collator,
                                              train_dataset=train_dataset, eval_dataset=eval_dataset)
                             try:
                                 trainer.train()
-                                print("[SUCCESS] Training completed with smart optimization!")
-                                return
+                                print(f"[SUCCESS] Training completed with {'smart' if choice == '1' else 'extreme'} optimization!")
+                                return True
                             except Exception as retry_e:
-                                print(f"[ERROR] Smart optimization failed: {retry_e}")
-                                continue
-                        elif choice == '2':
-                            print("[INFO] Applying extreme memory efficiency...")
-                            if torch.cuda.is_available():
-                                torch.cuda.empty_cache()
-                                torch.cuda.ipc_collect()
-                                import gc
-                                gc.collect()
-                            training_args.per_device_train_batch_size = 1
-                            training_args.gradient_accumulation_steps = 64
-                            training_args.gradient_checkpointing = True
-                            training_args.optim = "adafactor"
-                            training_args.dataloader_pin_memory = False
-                            training_args.dataloader_num_workers = 0
-                            del model
-                            torch.cuda.empty_cache()
-                            model = AutoModelForCausalLM.from_pretrained(
-                                base_model, torch_dtype=torch.float16, device_map="auto",
-                                low_cpu_mem_usage=True, max_memory={0: "2GB"}
-                            )
-                            trainer = Trainer(model=model, args=training_args, data_collator=data_collator,
-                                             train_dataset=train_dataset, eval_dataset=eval_dataset)
-                            try:
-                                trainer.train()
-                                print("[SUCCESS] Training completed with extreme efficiency!")
-                                return
-                            except Exception as retry_e:
-                                print(f"[ERROR] Extreme efficiency failed: {retry_e}")
+                                print(f"[ERROR] Optimization failed: {retry_e}")
                                 continue
                         elif choice == '3':
                             print("[INFO] Switching to CPU training...")
@@ -1347,10 +1274,10 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                             try:
                                 trainer.train()
                                 print("[SUCCESS] Training completed on CPU!")
-                                return
+                                return True
                             except Exception as cpu_e:
                                 print(f"[ERROR] CPU training failed: {cpu_e}")
-                                return
+                                return False
                         elif choice == '4':
                             print("[INFO] Running GPU cleanup utility...")
                             import subprocess
@@ -1362,14 +1289,68 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                                 print(f"[ERROR] GPU cleanup failed: {cleanup_e}")
                                 print("[TIP] Run manually: python gpu_cleanup.py")
                                 continue
+                        elif choice == '5':
+                            print("[INFO] Returning to base model selection...")
+                            if 'BASE_MODEL' in os.environ:
+                                del os.environ['BASE_MODEL']
+                            return "restart"
+                        elif choice == '6':
+                            print("[INFO] Returning to training configuration...")
+                            if 'TRAINING_MODE' in os.environ:
+                                del os.environ['TRAINING_MODE']
+                            return "restart"
+                        elif choice == '7':
+                            print("[INFO] Skipping training and proceeding to model testing...")
+                            model_dir = "./models/jvm_troubleshooting_model"
+                            if os.path.exists(model_dir):
+                                print(f"[INFO] Found existing model at {model_dir}")
+                                print("\n🧪 Model Testing Options:")
+                                print("  1. Interactive testing with conversation memory (test_model.py)")
+                                print("  2. Quick batch testing (quick_test.py)")
+                                print("  3. Skip testing")
+                                
+                                try:
+                                    test_choice = input("\nChoose testing option (1-3) [1]: ").strip() or '1'
+                                    if test_choice == '1':
+                                        print("[INFO] Starting interactive testing...")
+                                        import subprocess
+                                        subprocess.run(["python", "test_model.py"])
+                                    elif test_choice == '2':
+                                        print("[INFO] Starting quick batch testing...")
+                                        import subprocess
+                                        subprocess.run(["python", "quick_test.py"])
+                                    elif test_choice == '3':
+                                        print("[INFO] Skipping testing")
+                                except (EOFError, KeyboardInterrupt):
+                                    print("\n[INFO] Testing skipped")
+                            else:
+                                print("[WARNING] No existing model found to test")
+                                print("[INFO] You can try downloading from Hugging Face:")
+                                print("  python model_utils.py recover")
+                            return False
+                        elif choice == '8':
+                            print("[INFO] Exiting. Check the error message above for details.")
+                            return False
                         else:
                             print("Please enter 1, 2, 3, 4, 5, 6, 7, or 8")
                             continue
                             
                     except (EOFError, KeyboardInterrupt):
                         print("\n[INFO] Using default option 5 (change model)")
-                        choice = '5'
-                        continue
+                        if 'BASE_MODEL' in os.environ:
+                            del os.environ['BASE_MODEL']
+                        return "restart"
+            
+            import sys
+            if sys.stdin.isatty():
+                result = handle_training_error_menu()
+                if result == "restart":
+                    return train_and_upload_model(dataset_dict, auth_token, username)
+                elif result == True:
+                    # Training succeeded, continue to model saving
+                    pass
+                else:
+                    return  # Exit training
             else:
                 print("[INFO] Non-interactive mode: This might be due to:")
                 print("  - Corrupted training data")
