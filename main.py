@@ -263,7 +263,58 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
     # =============================================================================
     
     # Get configuration from environment variables with sensible defaults
-    base_model = os.getenv('BASE_MODEL', 'microsoft/DialoGPT-medium')  # Balanced performance
+    base_model = os.getenv('BASE_MODEL')
+    if not base_model:
+        # Auto-select based on available hardware
+        if torch.cuda.is_available():
+            total_mem = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            reserved = torch.cuda.memory_reserved(0) / 1024**3
+            available = total_mem - reserved
+            
+            print(f"\n[INFO] GPU Memory Analysis:")
+            print(f"  Total: {total_mem:.1f} GB")
+            print(f"  Available: {available:.1f} GB")
+            
+            if available >= 10:
+                print("\n[INFO] Model Selection (GPU):")
+                print("  1. DialoGPT-small (117M params) - Fast, 2-4GB VRAM")
+                print("  2. DialoGPT-medium (345M params) - Balanced, 4-6GB VRAM")
+                print("  3. DialoGPT-large (774M params) - Best quality, 8-12GB VRAM")
+                
+                while True:
+                    choice = input("\nSelect model (1, 2, or 3): ").strip()
+                    if choice == '1':
+                        base_model = 'microsoft/DialoGPT-small'
+                        break
+                    elif choice == '2':
+                        base_model = 'microsoft/DialoGPT-medium'
+                        break
+                    elif choice == '3':
+                        base_model = 'microsoft/DialoGPT-large'
+                        break
+                    else:
+                        print("Please enter 1, 2, or 3")
+            else:
+                base_model = 'microsoft/DialoGPT-small'
+                print(f"[INFO] Auto-selected DialoGPT-small (limited GPU memory: {available:.1f}GB)")
+        else:
+            print("\n[INFO] CPU Mode Detected")
+            print("\n[INFO] Model Selection (CPU):")
+            print("  1. DialoGPT-small (117M params) - Recommended for CPU")
+            print("  2. DialoGPT-medium (345M params) - Slower on CPU")
+            
+            while True:
+                choice = input("\nSelect model (1 or 2): ").strip()
+                if choice == '1':
+                    base_model = 'microsoft/DialoGPT-small'
+                    break
+                elif choice == '2':
+                    base_model = 'microsoft/DialoGPT-medium'
+                    print("[WARNING] Medium model will be slow on CPU")
+                    break
+                else:
+                    print("Please enter 1 or 2")
+    
     finetune_method = os.getenv('FINETUNE_METHOD', 'full')  # Full fine-tuning by default
     model_name = "jvm_troubleshooting_model"
     model_id = f"{username}/{model_name}"
@@ -275,6 +326,30 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
     # Create local model directory
     model_dir = f"./models/{model_name}"
     os.makedirs(model_dir, exist_ok=True)
+    
+    # =============================================================================
+    # GPU MEMORY OPTIMIZATION
+    # =============================================================================
+    
+    if torch.cuda.is_available():
+        # Aggressive GPU memory clearing for RTX 4090
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
+        os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+        
+        # Force garbage collection
+        import gc
+        gc.collect()
+        
+        total_mem = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        allocated = torch.cuda.memory_allocated(0) / 1024**3
+        reserved = torch.cuda.memory_reserved(0) / 1024**3
+        free = total_mem - reserved
+        
+        print(f"[INFO] GPU Total: {total_mem:.1f} GB")
+        print(f"[INFO] GPU Allocated: {allocated:.1f} GB")
+        print(f"[INFO] GPU Reserved: {reserved:.1f} GB")
+        print(f"[INFO] GPU Available: {free:.1f} GB")
     
     # =============================================================================
     # MODEL AND TOKENIZER LOADING
@@ -290,12 +365,24 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
             
-        # Load base model for causal language modeling
-        model = AutoModelForCausalLM.from_pretrained(
-            base_model,
-            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-            device_map="auto" if torch.cuda.is_available() else None
-        )
+        # Load base model with hardware-specific optimization
+        if torch.cuda.is_available():
+            # GPU configuration
+            model = AutoModelForCausalLM.from_pretrained(
+                base_model,
+                torch_dtype=torch.float16,
+                device_map="auto",
+                low_cpu_mem_usage=True,
+                max_memory={0: "6GB"}  # Very conservative for large model
+            )
+        else:
+            # CPU configuration - optimized for memory efficiency
+            model = AutoModelForCausalLM.from_pretrained(
+                base_model,
+                torch_dtype=torch.float32,
+                low_cpu_mem_usage=True,
+                use_cache=False  # Reduce memory usage on CPU
+            )
         
         print(f"[SUCCESS] Loaded model with {model.num_parameters():,} parameters")
         
@@ -367,7 +454,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
             texts,
             truncation=True,
             padding="max_length",
-            max_length=768,  # Increased context length for better understanding
+            max_length=512 if training_mode in ['gpu_1', 'gpu_4'] else 768,  # Adaptive context length
             return_tensors=None
         )
         
@@ -400,16 +487,44 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
     # TRAINING CONFIGURATION
     # =============================================================================
     
-    # Configure training arguments based on fine-tuning method
+    def get_training_config():
+        """Interactive training configuration selection"""
+        if torch.cuda.is_available():
+            print("\n[INFO] Training Configuration (GPU):")
+            print("  1. Conservative - Safe for any GPU (2GB+ VRAM)")
+            print("  2. Balanced - Good performance/memory trade-off (6GB+ VRAM)")
+            print("  3. Aggressive - High performance (10GB+ VRAM)")
+            print("  4. Extreme - Maximum memory efficiency (any VRAM)")
+            
+            while True:
+                choice = input("\nSelect training mode (1-4): ").strip()
+                if choice in ['1', '2', '3', '4']:
+                    return f"gpu_{choice}"
+                print("Please enter 1, 2, 3, or 4")
+        else:
+            print("\n[INFO] Training Configuration (CPU):")
+            print("  1. Fast - Minimal training for quick results")
+            print("  2. Quality - Better training with more time")
+            
+            while True:
+                choice = input("\nSelect training mode (1-2): ").strip()
+                if choice in ['1', '2']:
+                    return f"cpu_{choice}"
+                print("Please enter 1 or 2")
+    
+    # Get training configuration
+    training_mode = os.getenv('TRAINING_MODE') or get_training_config()
+    
+    # Configure training arguments based on mode
     if finetune_method == "lora":
-        # LoRA: More aggressive training since fewer parameters are updated
+        # LoRA configuration
         training_args = TrainingArguments(
             output_dir=model_dir,
             overwrite_output_dir=True,
-            num_train_epochs=5,              # More epochs for LoRA
-            per_device_train_batch_size=4,   # Larger batch size possible
+            num_train_epochs=5,
+            per_device_train_batch_size=4,
             per_device_eval_batch_size=4,
-            learning_rate=3e-4,              # Higher learning rate for LoRA
+            learning_rate=3e-4,
             warmup_steps=100,
             logging_steps=25,
             save_steps=250,
@@ -418,32 +533,69 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
             save_total_limit=2,
             remove_unused_columns=False,
             dataloader_pin_memory=False,
-            fp16=torch.cuda.is_available(),  # Mixed precision if GPU available
-            report_to=None,                  # Disable wandb/tensorboard
-        )
-    else:
-        # Full fine-tuning: Conservative approach for stability
-        training_args = TrainingArguments(
-            output_dir=model_dir,
-            overwrite_output_dir=True,
-            num_train_epochs=5,              # Sufficient epochs for convergence
-            per_device_train_batch_size=1,   # Small batch for memory efficiency
-            per_device_eval_batch_size=1,
-            learning_rate=3e-5,              # Lower learning rate for stability
-            warmup_steps=100,                # Gradual learning rate increase
-            logging_steps=10,
-            save_steps=100,
-            eval_strategy="steps",
-            eval_steps=100,
-            save_total_limit=3,
-            remove_unused_columns=False,
-            dataloader_pin_memory=False,
-            fp16=torch.cuda.is_available(),
-            gradient_accumulation_steps=4,   # Effective batch size = 4
-            weight_decay=0.01,               # L2 regularization
-            max_grad_norm=1.0,               # Gradient clipping for stability
+            fp16=False,
+            bf16=torch.cuda.is_available() and hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported(),
+            dataloader_num_workers=0,
             report_to=None,
         )
+    else:
+        # Full fine-tuning configurations
+        if training_mode == "gpu_1":  # Conservative
+            training_args = TrainingArguments(
+                output_dir=model_dir, overwrite_output_dir=True, num_train_epochs=2,
+                per_device_train_batch_size=1, per_device_eval_batch_size=1, gradient_accumulation_steps=8,
+                learning_rate=5e-5, warmup_steps=50, logging_steps=20, save_steps=200,
+                eval_strategy="steps", eval_steps=200, save_total_limit=1, remove_unused_columns=False,
+                dataloader_pin_memory=False, fp16=True, dataloader_num_workers=0, weight_decay=0.01,
+                max_grad_norm=1.0, report_to=None, gradient_checkpointing=True, optim="adafactor"
+            )
+        elif training_mode == "gpu_2":  # Balanced
+            training_args = TrainingArguments(
+                output_dir=model_dir, overwrite_output_dir=True, num_train_epochs=3,
+                per_device_train_batch_size=2, per_device_eval_batch_size=2, gradient_accumulation_steps=4,
+                learning_rate=3e-5, warmup_steps=100, logging_steps=10, save_steps=100,
+                eval_strategy="steps", eval_steps=100, save_total_limit=1, remove_unused_columns=False,
+                dataloader_pin_memory=False, fp16=True, dataloader_num_workers=0, weight_decay=0.01,
+                max_grad_norm=1.0, report_to=None, gradient_checkpointing=True
+            )
+        elif training_mode == "gpu_3":  # Aggressive
+            training_args = TrainingArguments(
+                output_dir=model_dir, overwrite_output_dir=True, num_train_epochs=3,
+                per_device_train_batch_size=4, per_device_eval_batch_size=4, gradient_accumulation_steps=2,
+                learning_rate=3e-5, warmup_steps=100, logging_steps=10, save_steps=100,
+                eval_strategy="steps", eval_steps=100, save_total_limit=2, remove_unused_columns=False,
+                dataloader_pin_memory=False, fp16=True, dataloader_num_workers=0, weight_decay=0.01,
+                max_grad_norm=1.0, report_to=None
+            )
+        elif training_mode == "gpu_4":  # Extreme
+            training_args = TrainingArguments(
+                output_dir=model_dir, overwrite_output_dir=True, num_train_epochs=3,
+                per_device_train_batch_size=1, per_device_eval_batch_size=1, gradient_accumulation_steps=16,
+                learning_rate=3e-5, warmup_steps=100, logging_steps=10, save_steps=100,
+                eval_strategy="steps", eval_steps=100, save_total_limit=1, remove_unused_columns=False,
+                dataloader_pin_memory=False, fp16=True, dataloader_num_workers=0, weight_decay=0.01,
+                max_grad_norm=1.0, report_to=None, gradient_checkpointing=True, optim="adafactor"
+            )
+        elif training_mode == "cpu_1":  # Fast CPU
+            training_args = TrainingArguments(
+                output_dir=model_dir, overwrite_output_dir=True, num_train_epochs=1,
+                per_device_train_batch_size=1, per_device_eval_batch_size=1, gradient_accumulation_steps=4,
+                learning_rate=5e-5, warmup_steps=25, logging_steps=50, save_steps=500,
+                eval_strategy="steps", eval_steps=500, save_total_limit=1, remove_unused_columns=False,
+                dataloader_pin_memory=False, fp16=False, dataloader_num_workers=0, weight_decay=0.01,
+                max_grad_norm=1.0, report_to=None, use_cpu=True
+            )
+        else:  # cpu_2 - Quality CPU
+            training_args = TrainingArguments(
+                output_dir=model_dir, overwrite_output_dir=True, num_train_epochs=2,
+                per_device_train_batch_size=1, per_device_eval_batch_size=1, gradient_accumulation_steps=8,
+                learning_rate=5e-5, warmup_steps=50, logging_steps=20, save_steps=200,
+                eval_strategy="steps", eval_steps=200, save_total_limit=1, remove_unused_columns=False,
+                dataloader_pin_memory=False, fp16=False, dataloader_num_workers=0, weight_decay=0.01,
+                max_grad_norm=1.0, report_to=None, use_cpu=True
+            )
+    
+    print(f"[INFO] Training mode: {training_mode}")
     
     # Data collator for causal language modeling
     data_collator = DataCollatorForLanguageModeling(

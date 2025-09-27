@@ -118,7 +118,18 @@ echo "[2/8] Setting up virtual environment..."
 # This prevents issues with corrupted or outdated environments
 if [ -d ".venv" ]; then
     echo "🗑️  Removing existing virtual environment for clean setup..."
-    rm -rf .venv
+    # Force remove with multiple attempts to handle stubborn directories
+    chmod -R u+w .venv 2>/dev/null || true
+    rm -rf .venv 2>/dev/null || {
+        echo "⚠️  Standard removal failed, using force method..."
+        find .venv -type f -delete 2>/dev/null || true
+        find .venv -type d -empty -delete 2>/dev/null || true
+        rm -rf .venv 2>/dev/null || true
+    }
+    # Final check and manual cleanup if needed
+    if [ -d ".venv" ]; then
+        echo "⚠️  Some files remain, continuing with existing environment..."
+    fi
 fi
 
 # Create new virtual environment
