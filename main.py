@@ -699,18 +699,88 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
         if "CUDA out of memory" in error_msg or "out of memory" in error_msg.lower():
             print("\n[INFO] GPU Memory Issue Detected!")
             
-            # Show current memory status
-            if torch.cuda.is_available():
-                total = torch.cuda.get_device_properties(0).total_memory / 1024**3
-                allocated = torch.cuda.memory_allocated(0) / 1024**3
-                reserved = torch.cuda.memory_reserved(0) / 1024**3
-                available = total - reserved
-                print(f"[INFO] GPU Memory: {allocated:.1f}GB allocated, {reserved:.1f}GB reserved, {available:.1f}GB available of {total:.1f}GB total")
+            # Analyze system and provide intelligent recommendations
+            def analyze_and_recommend():
+                """Analyze system state and recommend best option"""
+                recommendations = []
+                
+                if torch.cuda.is_available():
+                    total = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                    allocated = torch.cuda.memory_allocated(0) / 1024**3
+                    reserved = torch.cuda.memory_reserved(0) / 1024**3
+                    available = total - reserved
+                    
+                    print(f"[INFO] GPU Memory: {allocated:.1f}GB allocated, {reserved:.1f}GB reserved, {available:.1f}GB available of {total:.1f}GB total")
+                    
+                    # Analyze memory patterns
+                    memory_usage_ratio = allocated / total
+                    available_ratio = available / total
+                    
+                    # Check if this is a repeated failure
+                    failure_count = getattr(analyze_and_recommend, 'failure_count', 0)
+                    analyze_and_recommend.failure_count = failure_count + 1
+                    
+                    # Analyze error message for specific issues
+                    fragmentation_issue = "fragmentation" in error_msg.lower()
+                    small_allocation = "20.00 MiB" in error_msg or "30.00 MiB" in error_msg
+                    
+                    print(f"\n🔍 System Analysis:")
+                    print(f"  • GPU: {torch.cuda.get_device_name(0)}")
+                    print(f"  • Memory Usage: {memory_usage_ratio*100:.1f}% of total capacity")
+                    print(f"  • Available Memory: {available:.1f}GB ({available_ratio*100:.1f}%)")
+                    print(f"  • Failure Attempt: #{failure_count}")
+                    print(f"  • Model Size: {base_model} (~{model.num_parameters()/1e6:.0f}M params)")
+                    
+                    # Generate recommendations based on analysis
+                    if failure_count == 1:
+                        if available >= 8 and total >= 12:
+                            recommendations.append((1, "Smart memory optimization - You have sufficient VRAM"))
+                            recommendations.append((4, "GPU cleanup utility - Clear any background processes first"))
+                        elif available >= 4:
+                            recommendations.append((2, "Extreme memory efficiency - Conservative approach"))
+                            recommendations.append((1, "Smart memory optimization - Try if cleanup helps"))
+                        else:
+                            recommendations.append((5, "Change base model - Current model too large"))
+                            recommendations.append((2, "Extreme memory efficiency - Last GPU attempt"))
+                    
+                    elif failure_count == 2:
+                        if "DialoGPT-large" in base_model:
+                            recommendations.append((5, "Change to DialoGPT-medium - Large model too demanding"))
+                            recommendations.append((6, "Change training config - Try conservative mode"))
+                        else:
+                            recommendations.append((2, "Extreme memory efficiency - More aggressive settings"))
+                            recommendations.append((3, "Switch to CPU training - GPU may be unstable"))
+                    
+                    else:  # failure_count >= 3
+                        recommendations.append((7, "Skip training and test existing model - Avoid further issues"))
+                        recommendations.append((3, "Switch to CPU training - GPU training problematic"))
+                        recommendations.append((5, "Change to smallest model - DialoGPT-small"))
+                    
+                    # Special cases
+                    if fragmentation_issue:
+                        recommendations.insert(0, (4, "GPU cleanup utility - Memory fragmentation detected"))
+                    
+                    if small_allocation and available > 2:
+                        recommendations.insert(0, (1, "Smart memory optimization - Small allocation failure with available memory"))
+                    
+                    if "DialoGPT-large" in base_model and total < 16:
+                        recommendations.insert(0, (5, "Change base model - Large model needs 16GB+ VRAM"))
+                    
+                else:
+                    recommendations.append((3, "Switch to CPU training - No GPU available"))
+                
+                return recommendations
+            
+            recommendations = analyze_and_recommend()
             
             import sys
             if sys.stdin.isatty():
                 while True:  # Unlimited retries
-                    print("\nOptions to resolve:")
+                    print("\n🤖 AI Recommendations (based on system analysis):")
+                    for i, (option_num, reason) in enumerate(recommendations[:3], 1):
+                        print(f"  {i}. Option {option_num}: {reason}")
+                    
+                    print("\n📋 All Available Options:")
                     print("  1. Smart memory optimization (recommended for high-VRAM GPUs)")
                     print("  2. Extreme memory efficiency (smallest possible batch)")
                     print("  3. Switch to CPU training")
@@ -720,10 +790,16 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                     print("  7. Skip training and test existing model")
                     print("  8. Exit and manually free GPU memory")
                     
+                    # Show recommended option
+                    if recommendations:
+                        recommended_option = recommendations[0][0]
+                        print(f"\n💡 Recommended: Option {recommended_option}")
+                    
                     try:
-                        choice = input("\nSelect option (1-8) [1]: ").strip()
+                        default_choice = str(recommendations[0][0]) if recommendations else '1'
+                        choice = input(f"\nSelect option (1-8) [{default_choice}]: ").strip()
                         if not choice:
-                            choice = '1'
+                            choice = default_choice
                         
                         if choice == '1':
                             print("[INFO] Applying smart memory optimization...")
