@@ -112,12 +112,12 @@ def test_jvm_model():
         # Load tokenizer with proper configuration
         tokenizer = AutoTokenizer.from_pretrained(model_path)
         
-        # Load model with appropriate settings
+        # Load model with stable CPU settings
         model = AutoModelForCausalLM.from_pretrained(
             model_path,
-            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-            device_map="auto" if torch.cuda.is_available() else None,
-            low_cpu_mem_usage=True  # Optimize memory usage
+            torch_dtype=torch.float32,
+            device_map=None,
+            low_cpu_mem_usage=True
         )
         
         # Set model to evaluation mode
@@ -125,7 +125,7 @@ def test_jvm_model():
         
         print("✅ Model loaded successfully!")
         print(f"🔧 Model parameters: {model.num_parameters():,}")
-        print(f"💾 Device: {'GPU' if torch.cuda.is_available() else 'CPU'}")
+        print(f"💾 Device: CPU (stable mode)")
         
     except Exception as e:
         print(f"❌ Failed to load model: {e}")
@@ -337,9 +337,7 @@ def generate_response_with_memory(model, tokenizer, question, conversation_histo
             add_special_tokens=True
         )
         
-        # Move inputs to same device as model
-        device = next(model.parameters()).device
-        inputs = {k: v.to(device) for k, v in inputs.items()}
+        # Model is on CPU, inputs already on CPU
         
         # =============================================================================
         # RESPONSE GENERATION

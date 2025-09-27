@@ -96,12 +96,14 @@ def quick_test():
         print("🔄 Loading JVM troubleshooting model...")
         print("⏳ This may take a moment for large models...")
         
-        # Load tokenizer and model with optimized settings
+        # Load tokenizer and model with stable settings
         tokenizer = AutoTokenizer.from_pretrained(model_path)
+        
+        # Force CPU loading to avoid CUDA assertion errors
         model = AutoModelForCausalLM.from_pretrained(
             model_path,
-            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-            device_map="auto" if torch.cuda.is_available() else None,
+            torch_dtype=torch.float32,
+            device_map=None,
             low_cpu_mem_usage=True
         )
         
@@ -110,7 +112,7 @@ def quick_test():
         
         print("✅ Model loaded successfully!")
         print(f"🔧 Parameters: {model.num_parameters():,}")
-        print(f"💾 Device: {'GPU' if torch.cuda.is_available() else 'CPU'}")
+        print(f"💾 Device: CPU (stable mode)")
         
     except Exception as e:
         print(f"❌ Failed to load model: {e}")
@@ -160,9 +162,7 @@ def quick_test():
                 add_special_tokens=True
             )
             
-            # Move inputs to same device as model
-            device = next(model.parameters()).device
-            inputs = {k: v.to(device) for k, v in inputs.items()}
+            # Model is on CPU, inputs already on CPU
             
             # Generate response with optimized parameters
             with torch.no_grad():
@@ -170,14 +170,12 @@ def quick_test():
                     input_ids=inputs['input_ids'],
                     attention_mask=inputs['attention_mask'],
                     max_new_tokens=120,              # Sufficient for detailed answers
-                    temperature=0.7,                 # Balanced creativity
-                    do_sample=True,                  # Enable sampling
-                    top_p=0.9,                      # Nucleus sampling
+                    temperature=0.8,
+                    do_sample=True,
+                    top_p=0.95,
                     pad_token_id=tokenizer.eos_token_id,
                     eos_token_id=tokenizer.eos_token_id,
-                    repetition_penalty=1.1,         # Reduce repetition
-                    no_repeat_ngram_size=2,         # Avoid bigram repetition
-                    early_stopping=True             # Stop at natural endpoints
+                    repetition_penalty=1.05
                 )
             
             # =============================================================================
