@@ -58,7 +58,7 @@ def show_gpu_processes():
         print(f"❌ Error checking GPU processes: {e}")
 
 def kill_python_gpu_processes():
-    """Kill Python processes using GPU"""
+    """Kill Python processes using GPU (except current process and parents)"""
     try:
         result = subprocess.run(["nvidia-smi", "--query-compute-apps=pid,process_name", "--format=csv,noheader"], 
                               capture_output=True, text=True)
@@ -67,15 +67,23 @@ def kill_python_gpu_processes():
             lines = result.stdout.strip().split('\n')
             python_pids = []
             
+            # Get current process and parent PIDs to avoid killing them
+            current_pid = str(os.getpid())
+            parent_pid = str(os.getppid())
+            
             for line in lines:
                 parts = line.split(', ')
                 if len(parts) >= 2:
                     pid, process = parts[0], parts[1]
                     if 'python' in process.lower():
-                        python_pids.append(pid)
+                        # Don't kill current process or parent process
+                        if pid != current_pid and pid != parent_pid:
+                            python_pids.append(pid)
+                        else:
+                            print(f"⚠️  Skipping current/parent process {pid}")
             
             if python_pids:
-                print(f"🔫 Found {len(python_pids)} Python GPU processes")
+                print(f"🔫 Found {len(python_pids)} Python GPU processes to kill")
                 for pid in python_pids:
                     try:
                         subprocess.run(["kill", "-9", pid], check=True)
@@ -83,7 +91,7 @@ def kill_python_gpu_processes():
                     except subprocess.CalledProcessError:
                         print(f"❌ Failed to kill process {pid}")
             else:
-                print("No Python GPU processes found")
+                print("No killable Python GPU processes found")
         else:
             print("No GPU processes found")
             
@@ -109,6 +117,7 @@ def main():
     print("=" * 50)
     print("🚀 GPU Memory Cleanup Utility")
     print("=" * 50)
+    print(f"Current PID: {os.getpid()}, Parent PID: {os.getppid()}")
     
     while True:
         print("\nOptions:")
@@ -131,9 +140,10 @@ def main():
             elif choice == '4':
                 reset_gpu()
             elif choice == '5':
+                print("🧹 Starting full cleanup (memory + processes)...")
                 clear_gpu_memory()
                 kill_python_gpu_processes()
-                print("✅ Full cleanup completed")
+                print("✅ Full cleanup completed (current process preserved)")
             elif choice == '6':
                 print("👋 Goodbye!")
                 break
