@@ -424,17 +424,34 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                 available = total - reserved
                 print(f"[INFO] GPU Memory: {allocated:.1f}GB allocated, {reserved:.1f}GB reserved, {available:.1f}GB available of {total:.1f}GB total")
             
+            def clear_gpu_memory():
+                """Clear GPU memory and delete model"""
+                nonlocal model
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.ipc_collect()
+                    import gc
+                    gc.collect()
+                del model
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            
+            def reload_model_with_config(config):
+                """Reload model with specific configuration"""
+                nonlocal model
+                clear_gpu_memory()
+                model = AutoModelForCausalLM.from_pretrained(base_model, **config)
+                return model
+            
             import sys
             if sys.stdin.isatty():
-                # Temporarily disable debug logging to avoid interference
+                # Temporarily disable debug logging
                 original_level = logging.getLogger().level
                 logging.getLogger().setLevel(logging.WARNING)
-                
-                # Flush any pending output
                 sys.stdout.flush()
                 sys.stderr.flush()
                 
-                while True:  # Unlimited retries
+                while True:
                     print("\n📋 Model Loading Failed - Available Options:")
                     print("  1. Try smaller memory limit (2GB)")
                     print("  2. Switch to CPU loading")
@@ -443,16 +460,51 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                     print("  5. Change training configuration (go back to training mode)")
                     print("  6. Skip training and test existing model")
                     print("  7. Exit and manually free GPU memory")
-                    
-                    # Ensure output is displayed before input
                     sys.stdout.flush()
                     
                     try:
-                        choice = input("\nSelect option (1-7) [4]: ").strip()
-                        if not choice:
-                            choice = '4'  # Default to changing model
+                        choice = input("\nSelect option (1-7) [4]: ").strip() or '4'
                         
-                        if choice == '4':
+                        if choice == '1':
+                            print("[INFO] Applying smaller memory limit (2GB)...")
+                            try:
+                                model = reload_model_with_config({
+                                    'torch_dtype': torch.float16,
+                                    'device_map': "auto",
+                                    'low_cpu_mem_usage': True,
+                                    'max_memory': {0: "2GB"}
+                                })
+                                print("[SUCCESS] Model loaded with 2GB memory limit")
+                                break
+                            except Exception as retry_e:
+                                print(f"[ERROR] 2GB limit failed: {retry_e}")
+                                continue
+                        elif choice == '2':
+                            print("[INFO] Switching to CPU loading...")
+                            try:
+                                model = reload_model_with_config({
+                                    'torch_dtype': torch.float32,
+                                    'low_cpu_mem_usage': True,
+                                    'use_cache': False
+                                })
+                                model = model.cpu()
+                                print("[SUCCESS] Model loaded on CPU")
+                                break
+                            except Exception as retry_e:
+                                print(f"[ERROR] CPU loading failed: {retry_e}")
+                                continue
+                        elif choice == '3':
+                            print("[INFO] Running GPU cleanup utility...")
+                            import subprocess
+                            try:
+                                subprocess.run(["python", "gpu_cleanup.py"], check=True)
+                                print("[INFO] GPU cleanup completed. Retrying model loading...")
+                                continue
+                            except Exception as cleanup_e:
+                                print(f"[ERROR] GPU cleanup failed: {cleanup_e}")
+                                print("[TIP] Run manually: python gpu_cleanup.py")
+                                continue
+                        elif choice == '4':
                             print("[INFO] Returning to base model selection...")
                             return train_and_upload_model(dataset_dict, auth_token, username)
                         elif choice == '5':
@@ -471,10 +523,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                                 print("  3. Skip testing")
                                 
                                 try:
-                                    test_choice = input("\nChoose testing option (1-3) [1]: ").strip()
-                                    if not test_choice:
-                                        test_choice = '1'
-                                    
+                                    test_choice = input("\nChoose testing option (1-3) [1]: ").strip() or '1'
                                     if test_choice == '1':
                                         print("[INFO] Starting interactive testing...")
                                         import subprocess
@@ -485,7 +534,6 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                                         subprocess.run(["python", "quick_test.py"])
                                     elif test_choice == '3':
                                         print("[INFO] Skipping testing")
-                                    
                                 except (EOFError, KeyboardInterrupt):
                                     print("\n[INFO] Testing skipped")
                             else:
@@ -502,12 +550,12 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                             
                     except (EOFError, KeyboardInterrupt):
                         print("\n[INFO] Using default option 4 (change model)")
-                        # Restore logging level
                         logging.getLogger().setLevel(original_level)
                         return train_and_upload_model(dataset_dict, auth_token, username)
                 
-                # Restore logging level after menu interaction
                 logging.getLogger().setLevel(original_level)
+                print("[INFO] Continuing with selected option...")
+                return
             else:
                 print("[INFO] Non-interactive mode: Model loading failed")
                 return
@@ -1218,10 +1266,89 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                         elif choice == '8':
                             print("[INFO] Exiting. Check the error message above for details.")
                             return
-                        elif choice in ['1', '2', '3', '4']:
-                            # Reuse same logic as memory error handling
-                            print(f"[INFO] Applying option {choice}...")
-                            continue  # This would need the full implementation
+                        elif choice == '1':
+                            print("[INFO] Applying smart memory optimization...")
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                                torch.cuda.ipc_collect()
+                                import gc
+                                gc.collect()
+                            training_args.per_device_train_batch_size = 1
+                            training_args.gradient_accumulation_steps = 16
+                            training_args.gradient_checkpointing = True
+                            training_args.optim = "adafactor"
+                            training_args.dataloader_pin_memory = False
+                            training_args.dataloader_num_workers = 0
+                            del model
+                            torch.cuda.empty_cache()
+                            model = AutoModelForCausalLM.from_pretrained(
+                                base_model, torch_dtype=torch.float16, device_map="auto",
+                                low_cpu_mem_usage=True, max_memory={0: "4GB"}
+                            )
+                            trainer = Trainer(model=model, args=training_args, data_collator=data_collator,
+                                             train_dataset=train_dataset, eval_dataset=eval_dataset)
+                            try:
+                                trainer.train()
+                                print("[SUCCESS] Training completed with smart optimization!")
+                                return
+                            except Exception as retry_e:
+                                print(f"[ERROR] Smart optimization failed: {retry_e}")
+                                continue
+                        elif choice == '2':
+                            print("[INFO] Applying extreme memory efficiency...")
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                                torch.cuda.ipc_collect()
+                                import gc
+                                gc.collect()
+                            training_args.per_device_train_batch_size = 1
+                            training_args.gradient_accumulation_steps = 64
+                            training_args.gradient_checkpointing = True
+                            training_args.optim = "adafactor"
+                            training_args.dataloader_pin_memory = False
+                            training_args.dataloader_num_workers = 0
+                            del model
+                            torch.cuda.empty_cache()
+                            model = AutoModelForCausalLM.from_pretrained(
+                                base_model, torch_dtype=torch.float16, device_map="auto",
+                                low_cpu_mem_usage=True, max_memory={0: "2GB"}
+                            )
+                            trainer = Trainer(model=model, args=training_args, data_collator=data_collator,
+                                             train_dataset=train_dataset, eval_dataset=eval_dataset)
+                            try:
+                                trainer.train()
+                                print("[SUCCESS] Training completed with extreme efficiency!")
+                                return
+                            except Exception as retry_e:
+                                print(f"[ERROR] Extreme efficiency failed: {retry_e}")
+                                continue
+                        elif choice == '3':
+                            print("[INFO] Switching to CPU training...")
+                            model = model.cpu()
+                            training_args.use_cpu = True
+                            training_args.fp16 = False
+                            training_args.per_device_train_batch_size = 1
+                            training_args.gradient_accumulation_steps = 8
+                            trainer = Trainer(model=model, args=training_args, data_collator=data_collator,
+                                             train_dataset=train_dataset, eval_dataset=eval_dataset)
+                            try:
+                                trainer.train()
+                                print("[SUCCESS] Training completed on CPU!")
+                                return
+                            except Exception as cpu_e:
+                                print(f"[ERROR] CPU training failed: {cpu_e}")
+                                return
+                        elif choice == '4':
+                            print("[INFO] Running GPU cleanup utility...")
+                            import subprocess
+                            try:
+                                subprocess.run(["python", "gpu_cleanup.py"], check=True)
+                                print("[INFO] GPU cleanup completed. Retrying...")
+                                continue
+                            except Exception as cleanup_e:
+                                print(f"[ERROR] GPU cleanup failed: {cleanup_e}")
+                                print("[TIP] Run manually: python gpu_cleanup.py")
+                                continue
                         else:
                             print("Please enter 1, 2, 3, 4, 5, 6, 7, or 8")
                             continue
