@@ -807,22 +807,22 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                 max_grad_norm=1.0, report_to=None, gradient_checkpointing=True, optim="adafactor"
             )
         elif training_mode == "gpu_2":  # Balanced
-            training_args = TrainingArguments(
-                output_dir=model_dir, overwrite_output_dir=True, num_train_epochs=3,
-                per_device_train_batch_size=2, per_device_eval_batch_size=2, gradient_accumulation_steps=4,
-                learning_rate=5e-5, warmup_steps=100, logging_steps=10, save_steps=100,
-                eval_strategy="steps", eval_steps=100, save_total_limit=1, remove_unused_columns=False,
-                dataloader_pin_memory=False, fp16=False, dataloader_num_workers=0, weight_decay=0.01,
-                max_grad_norm=1.0, report_to=None, gradient_checkpointing=True
-            )
             # training_args = TrainingArguments(
             #     output_dir=model_dir, overwrite_output_dir=True, num_train_epochs=3,
             #     per_device_train_batch_size=2, per_device_eval_batch_size=2, gradient_accumulation_steps=4,
-            #     learning_rate=3e-5, warmup_steps=100, logging_steps=10, save_steps=100,
+            #     learning_rate=5e-5, warmup_steps=100, logging_steps=10, save_steps=100,
             #     eval_strategy="steps", eval_steps=100, save_total_limit=1, remove_unused_columns=False,
             #     dataloader_pin_memory=False, fp16=False, dataloader_num_workers=0, weight_decay=0.01,
             #     max_grad_norm=1.0, report_to=None, gradient_checkpointing=True
             # )
+            training_args = TrainingArguments(
+                output_dir=model_dir, overwrite_output_dir=True, num_train_epochs=3,
+                per_device_train_batch_size=2, per_device_eval_batch_size=2, gradient_accumulation_steps=4,
+                learning_rate=3e-5, warmup_steps=100, logging_steps=10, save_steps=100,
+                eval_strategy="steps", eval_steps=100, save_total_limit=1, remove_unused_columns=False,
+                dataloader_pin_memory=False, fp16=False, dataloader_num_workers=0, weight_decay=0.01,
+                max_grad_norm=1.0, report_to=None, gradient_checkpointing=True
+            )
         elif training_mode == "gpu_3":  # Aggressive
             training_args = TrainingArguments(
                 output_dir=model_dir, overwrite_output_dir=True, num_train_epochs=3,
@@ -1158,7 +1158,6 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                                 torch.cuda.empty_cache()
                             # Recursively call the training function with model selection
                             return train_and_upload_model(dataset_dict, auth_token, username)
-                            
                         elif choice == '6':
                             print("[INFO] Returning to training configuration...")
                             # Clear current model from memory
@@ -1169,7 +1168,6 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                             if 'TRAINING_MODE' in os.environ:
                                 del os.environ['TRAINING_MODE']
                             return train_and_upload_model(dataset_dict, auth_token, username)
-                            
                         elif choice == '7':
                             print("[INFO] Skipping training and proceeding to model testing...")
                             # Check if there's an existing model to test
@@ -1205,7 +1203,6 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                                 print("[INFO] You can try downloading from Hugging Face:")
                                 print("  python model_utils.py recover")
                             return
-                            
                         elif choice == '8':
                             print("[INFO] Exiting. Please free GPU memory manually and retry.")
                             print("[TIP] Run: nvidia-smi to check GPU processes")
