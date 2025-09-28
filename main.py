@@ -37,6 +37,7 @@ from transformers import (  # Transformer models and training
     DataCollatorForLanguageModeling
 )
 import torch  # PyTorch deep learning framework
+from training_monitor import TrainingHealthMonitor
 
 # Optional PEFT (Parameter Efficient Fine-Tuning) support
 try:
@@ -1151,14 +1152,22 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
     # =============================================================================
     
     # Initialize Hugging Face Trainer
+    # trainer = Trainer(
+    #     model=model,
+    #     args=training_args,
+    #     data_collator=data_collator,
+    #     train_dataset=train_dataset,
+    #     eval_dataset=eval_dataset,
+    # )
     trainer = Trainer(
         model=model,
         args=training_args,
         data_collator=data_collator,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
+        callbacks=[TrainingHealthMonitor(patience=3)]
     )
-    
+
     # Validate data before training
     print("[INFO] Validating training setup...")
     print(f"[DEBUG] Train dataset size: {len(train_dataset)}")
