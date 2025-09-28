@@ -9,4 +9,3 @@ transformers
 torch
 accelerate
 peft
-pydantic
