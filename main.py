@@ -37,7 +37,7 @@ from transformers import (  # Transformer models and training
     DataCollatorForLanguageModeling
 )
 import torch  # PyTorch deep learning framework
-from training_monitor import TrainingHealthMonitor
+from training_health_monitor import TrainingHealthMonitor
 
 # Optional PEFT (Parameter Efficient Fine-Tuning) support
 try:
