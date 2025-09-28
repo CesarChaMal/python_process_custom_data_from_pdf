@@ -116,7 +116,7 @@ echo "[2/8] Setting up virtual environment..."
 
 # Remove existing virtual environment to ensure clean state
 # This prevents issues with corrupted or outdated environments
-if [ -d ".venvw" ]; then
+if [ -d ".venv" ]; then
     echo "🗑️  Removing existing virtual environment for clean setup..."
     
     # Kill any processes using the venv (especially pip with pydantic locks)

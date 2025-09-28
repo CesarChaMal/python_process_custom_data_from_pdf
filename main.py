@@ -771,18 +771,46 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
     
     print(f"[INFO] Training samples: {len(train_dataset)}")
     print(f"[INFO] Evaluation samples: {len(eval_dataset)}")
-    
-    # Configure training arguments based on mode
+
+    # Best Practices Summary
+
+    # Learning Rate Guidelines by Model Size:
+    # 1.- Small models( < 200M params): 1e-5 to 5e-5
+    # 2.- Medium models(200M - 500M params): 5e-6 to 1e-5
+    # 3.- Large models( > 500M params): 1e-6 to 5e-6
+    # 4.- LoRA fine - tuning: 1e-5 to 5e-5(not 3e-4!)
+
+    # Critical Safety Parameters:
+    # 1.- max_grad_norm: 0.3 to 0.5(lower is safer)
+    # 2.- warmup_steps: At least 10 % of total steps
+    # 3.- weight_decay: 0.05 to 0.1(helps regularization)
+    # 4.- adam_epsilon: 1e-8(numerical stability)
+    # 5.- fp16: True for GPU(mixed precision helps)
+
+    # Model - Data Size Rules: \
+    # 1.- 100 training samples: Use models < 200M params
+    # 2.- 100 - 500 samples: Models up to 350M params
+    # 3.- 500 - 1000 samples: Models up to 500M params
+    # 4.- 1000 + samples: Can try larger models
+
+    # Key Problems in the Original Configurations
+
+    # Critical Issues Found:
+    # 1.- LoRA config: Learning rate 3e-4 is 60x too high for LoRA! This is catastrophic.
+    # 2.- GPU modes 3 & 4: Learning rate 3e-5 is too high for large models with limited data
+    # 3.- Missing parameters: No max_grad_norm in several configs(allowsgradientexplosion)
+    # 4.- Adafactor optimizer: Can be unstable with certain model architectures
+    # 5.- No adam_epsilon: Missing numerical stability parameter
     if finetune_method == "lora":
-        # LoRA configuration
+        # LoRA configuration - FIXED for stability
         training_args = TrainingArguments(
             output_dir=model_dir,
             overwrite_output_dir=True,
-            num_train_epochs=5,
-            per_device_train_batch_size=4,
-            per_device_eval_batch_size=4,
-            learning_rate=3e-4,
-            warmup_steps=100,
+            num_train_epochs=3,  # Reduced from 5
+            per_device_train_batch_size=2,  # Reduced from 4
+            per_device_eval_batch_size=2,  # Reduced from 4
+            learning_rate=5e-5,  # Much lower - was 3e-4 (way too high!)
+            warmup_steps=200,  # Increased from 100
             logging_steps=25,
             save_steps=250,
             eval_strategy="steps",
@@ -790,76 +818,327 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
             save_total_limit=2,
             remove_unused_columns=False,
             dataloader_pin_memory=False,
-            fp16=False,
-            bf16=torch.cuda.is_available() and hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported(),
+            fp16=True,  # Enable for stability
+            bf16=False,  # Disable bf16, use fp16 instead
             dataloader_num_workers=0,
             report_to=None,
+            max_grad_norm=0.5,  # ADD THIS - critical for stability
+            weight_decay=0.1,  # ADD THIS - helps prevent overfitting
+            adam_epsilon=1e-8,  # ADD THIS - numerical stability
         )
+        # training_args = TrainingArguments(
+        #     output_dir=model_dir,
+        #     overwrite_output_dir=True,
+        #     num_train_epochs=5,
+        #     per_device_train_batch_size=4,
+        #     per_device_eval_batch_size=4,
+        #     learning_rate=3e-4,
+        #     warmup_steps=100,
+        #     logging_steps=25,
+        #     save_steps=250,
+        #     eval_strategy="steps",
+        #     eval_steps=250,
+        #     save_total_limit=2,
+        #     remove_unused_columns=False,
+        #     dataloader_pin_memory=False,
+        #     fp16=False,
+        #     bf16=torch.cuda.is_available() and hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported(),
+        #     dataloader_num_workers=0,
+        #     report_to=None,
+        # )
     else:
         # Full fine-tuning configurations
-        if training_mode == "gpu_1":  # Conservative
-            training_args = TrainingArguments(
-                output_dir=model_dir, overwrite_output_dir=True, num_train_epochs=2,
-                per_device_train_batch_size=1, per_device_eval_batch_size=1, gradient_accumulation_steps=8,
-                learning_rate=5e-5, warmup_steps=50, logging_steps=20, save_steps=200,
-                eval_strategy="steps", eval_steps=200, save_total_limit=1, remove_unused_columns=False,
-                dataloader_pin_memory=False, fp16=False, dataloader_num_workers=0, weight_decay=0.01,
-                max_grad_norm=1.0, report_to=None, gradient_checkpointing=True, optim="adafactor"
-            )
-        elif training_mode == "gpu_2":  # Balanced
+        if training_mode == "gpu_1":  # Conservative - FIXED
             # training_args = TrainingArguments(
-            #     output_dir=model_dir, overwrite_output_dir=True, num_train_epochs=3,
-            #     per_device_train_batch_size=2, per_device_eval_batch_size=2, gradient_accumulation_steps=4,
-            #     learning_rate=5e-5, warmup_steps=100, logging_steps=10, save_steps=100,
-            #     eval_strategy="steps", eval_steps=100, save_total_limit=1, remove_unused_columns=False,
-            #     dataloader_pin_memory=False, fp16=False, dataloader_num_workers=0, weight_decay=0.01,
-            #     max_grad_norm=1.0, report_to=None, gradient_checkpointing=True
+            #     output_dir=model_dir,
+            #     overwrite_output_dir=True,
+            #     num_train_epochs=2,
+            #     per_device_train_batch_size=1,
+            #     per_device_eval_batch_size=1,
+            #     gradient_accumulation_steps=8,
+            #     learning_rate=5e-5,
+            #     warmup_steps=50,
+            #     logging_steps=20,
+            #     save_steps=200,
+            #     eval_strategy="steps",
+            #     eval_steps=200,
+            #     save_total_limit=1,
+            #     remove_unused_columns=False,
+            #     dataloader_pin_memory=False,
+            #     fp16=False,
+            #     dataloader_num_workers=0,
+            #     weight_decay=0.01,
+            #     max_grad_norm=1.0,
+            #     report_to=None,
+            #     gradient_checkpointing=True,
+            #     optim="adafactor"
             # )
             training_args = TrainingArguments(
-                output_dir=model_dir, overwrite_output_dir=True, num_train_epochs=3,
-                per_device_train_batch_size=2, per_device_eval_batch_size=2, gradient_accumulation_steps=4,
-                learning_rate=3e-5, warmup_steps=100, logging_steps=10, save_steps=100,
-                eval_strategy="steps", eval_steps=100, save_total_limit=1, remove_unused_columns=False,
-                dataloader_pin_memory=False, fp16=False, dataloader_num_workers=0, weight_decay=0.01,
-                max_grad_norm=1.0, report_to=None, gradient_checkpointing=True
+                output_dir=model_dir,
+                overwrite_output_dir=True,
+                num_train_epochs=2,
+                per_device_train_batch_size=1,
+                per_device_eval_batch_size=1,
+                gradient_accumulation_steps=8,
+                learning_rate=1e-5,  # Reduced from 5e-5
+                warmup_steps=100,  # Increased from 50
+                logging_steps=20,
+                save_steps=200,
+                eval_strategy="steps",
+                eval_steps=200,
+                save_total_limit=1,
+                remove_unused_columns=False,
+                dataloader_pin_memory=False,
+                fp16=True,  # Enable for stability
+                dataloader_num_workers=0,
+                weight_decay=0.1,  # Increased from 0.01
+                max_grad_norm=0.5,  # Reduced from 1.0
+                report_to=None,
+                gradient_checkpointing=True,
+                optim="adamw_torch",  # Changed from adafactor
+                adam_epsilon=1e-8,  # Added for stability
             )
-        elif training_mode == "gpu_3":  # Aggressive
+        elif training_mode == "gpu_2":  # Balanced - NEEDS FIXING
+            # training_args = TrainingArguments(
+            #     output_dir=model_dir,
+            #     overwrite_output_dir=True,
+            #     num_train_epochs=3,
+            #     per_device_train_batch_size=2,
+            #     per_device_eval_batch_size=2,
+            #     gradient_accumulation_steps=4,
+            #     learning_rate=3e-5,
+            #     warmup_steps=100,
+            #     logging_steps=10,
+            #     save_steps=100,
+            #     eval_strategy="steps",
+            #     eval_steps=100,
+            #     save_total_limit=1,
+            #     remove_unused_columns=False,
+            #     dataloader_pin_memory=False,
+            #     fp16=False,
+            #     dataloader_num_workers=0,
+            #     weight_decay=0.01,
+            #     max_grad_norm=1.0,
+            #     report_to=None,
+            #     gradient_checkpointing=True
+            # )
             training_args = TrainingArguments(
-                output_dir=model_dir, overwrite_output_dir=True, num_train_epochs=3,
-                per_device_train_batch_size=4, per_device_eval_batch_size=4, gradient_accumulation_steps=2,
-                learning_rate=3e-5, warmup_steps=100, logging_steps=10, save_steps=100,
-                eval_strategy="steps", eval_steps=100, save_total_limit=2, remove_unused_columns=False,
-                dataloader_pin_memory=False, fp16=False, dataloader_num_workers=0, weight_decay=0.01,
-                max_grad_norm=1.0, report_to=None
+                output_dir=model_dir,
+                overwrite_output_dir=True,
+                num_train_epochs=3,
+                per_device_train_batch_size=1,  # Reduced from 2
+                per_device_eval_batch_size=1,  # Reduced from 2
+                gradient_accumulation_steps=8,  # Increased from 4
+                learning_rate=5e-6,  # Much lower - was 3e-5
+                warmup_steps=200,  # Increased from 100
+                logging_steps=10,
+                save_steps=100,
+                eval_strategy="steps",
+                eval_steps=100,
+                save_total_limit=1,
+                remove_unused_columns=False,
+                dataloader_pin_memory=False,
+                fp16=True,  # Enable mixed precision to help with numerical stability
+                dataloader_num_workers=0,
+                weight_decay=0.1,  # Increased from 0.01
+                max_grad_norm=0.5,  # Reduced from 1.0 - critical for stability
+                report_to=None,
+                gradient_checkpointing=True,
+                optim="adamw_torch",  # More stable than default
+                adam_epsilon=1e-8,  # For numerical stability
+                warmup_ratio=0.1,  # Additional warmup
             )
-        elif training_mode == "gpu_4":  # Extreme
+        elif training_mode == "gpu_3":  # Aggressive - NEEDS FIXING
+            # training_args = TrainingArguments(
+            #     output_dir=model_dir,
+            #     overwrite_output_dir=True,
+            #     num_train_epochs=3,
+            #     per_device_train_batch_size=4,
+            #     per_device_eval_batch_size=4,
+            #     gradient_accumulation_steps=2,
+            #     learning_rate=3e-5,
+            #     warmup_steps=100,
+            #     logging_steps=10,
+            #     save_steps=100,
+            #     eval_strategy="steps",
+            #     eval_steps=100,
+            #     save_total_limit=2,
+            #     remove_unused_columns=False,
+            #     dataloader_pin_memory=False,
+            #     fp16=False,
+            #     dataloader_num_workers=0,
+            #     weight_decay=0.01,
+            #     max_grad_norm=1.0,
+            #     report_to=None
+            # )
             training_args = TrainingArguments(
-                output_dir=model_dir, overwrite_output_dir=True, num_train_epochs=3,
-                per_device_train_batch_size=1, per_device_eval_batch_size=1, gradient_accumulation_steps=16,
-                learning_rate=3e-5, warmup_steps=100, logging_steps=10, save_steps=100,
-                eval_strategy="steps", eval_steps=100, save_total_limit=1, remove_unused_columns=False,
-                dataloader_pin_memory=False, fp16=False, dataloader_num_workers=0, weight_decay=0.01,
-                max_grad_norm=1.0, report_to=None, gradient_checkpointing=True, optim="adafactor"
+                output_dir=model_dir,
+                overwrite_output_dir=True,
+                num_train_epochs=3,
+                per_device_train_batch_size=2,  # Reduced from 4
+                per_device_eval_batch_size=2,  # Reduced from 4
+                gradient_accumulation_steps=4,  # Increased from 2
+                learning_rate=1e-5,  # Reduced from 3e-5
+                warmup_steps=150,  # Increased from 100
+                logging_steps=10,
+                save_steps=100,
+                eval_strategy="steps",
+                eval_steps=100,
+                save_total_limit=2,
+                remove_unused_columns=False,
+                dataloader_pin_memory=False,
+                fp16=True,  # Enable for stability
+                dataloader_num_workers=0,
+                weight_decay=0.1,  # Increased from 0.01
+                max_grad_norm=0.5,  # Reduced from 1.0
+                report_to=None,
+                gradient_checkpointing=True,  # ADD THIS for memory efficiency
+                adam_epsilon=1e-8,  # ADD THIS for stability
             )
-        elif training_mode == "cpu_1":  # Fast CPU
+        elif training_mode == "gpu_4":  # Extreme - NEEDS FIXING
+            # training_args = TrainingArguments(
+            #     output_dir=model_dir,
+            #     overwrite_output_dir=True,
+            #     num_train_epochs=3,
+            #     per_device_train_batch_size=1,
+            #     per_device_eval_batch_size=1,
+            #     gradient_accumulation_steps=16,
+            #     learning_rate=3e-5,
+            #     warmup_steps=100,
+            #     logging_steps=10,
+            #     save_steps=100,
+            #     eval_strategy="steps",
+            #     eval_steps=100,
+            #     save_total_limit=1,
+            #     remove_unused_columns=False,
+            #     dataloader_pin_memory=False,
+            #     fp16=False,
+            #     dataloader_num_workers=0,
+            #     weight_decay=0.01,
+            #     max_grad_norm=1.0,
+            #     report_to=None,
+            #     gradient_checkpointing=True,
+            #     optim="adafactor"
+            # )
             training_args = TrainingArguments(
-                output_dir=model_dir, overwrite_output_dir=True, num_train_epochs=1,
-                per_device_train_batch_size=1, per_device_eval_batch_size=1, gradient_accumulation_steps=4,
-                learning_rate=5e-5, warmup_steps=25, logging_steps=50, save_steps=500,
-                eval_strategy="steps", eval_steps=500, save_total_limit=1, remove_unused_columns=False,
-                dataloader_pin_memory=False, fp16=False, dataloader_num_workers=0, weight_decay=0.01,
-                max_grad_norm=1.0, report_to=None, use_cpu=True
+                output_dir=model_dir,
+                overwrite_output_dir=True,
+                num_train_epochs=3,
+                per_device_train_batch_size=1,
+                per_device_eval_batch_size=1,
+                gradient_accumulation_steps=16,
+                learning_rate=5e-6,  # Reduced from 3e-5
+                warmup_steps=200,  # Increased from 100
+                logging_steps=10,
+                save_steps=100,
+                eval_strategy="steps",
+                eval_steps=100,
+                save_total_limit=1,
+                remove_unused_columns=False,
+                dataloader_pin_memory=False,
+                fp16=True,  # Enable for stability
+                dataloader_num_workers=0,
+                weight_decay=0.1,  # Increased from 0.01
+                max_grad_norm=0.3,  # Even lower for extreme mode
+                report_to=None,
+                gradient_checkpointing=True,
+                optim="adamw_torch",  # Changed from adafactor
+                adam_epsilon=1e-8,  # Added for stability
             )
-        else:  # cpu_2 - Quality CPU
+        elif training_mode == "cpu_1":  # Fast CPU - FIXED
+            # training_args = TrainingArguments(
+            #     output_dir=model_dir,
+            #     overwrite_output_dir=True,
+            #     num_train_epochs=1,
+            #     per_device_train_batch_size=1,
+            #     per_device_eval_batch_size=1,
+            #     gradient_accumulation_steps=4,
+            #     learning_rate=5e-5,
+            #     warmup_steps=25,
+            #     logging_steps=50,
+            #     save_steps=500,
+            #     eval_strategy="steps",
+            #     eval_steps=500,
+            #     save_total_limit=1,
+            #     remove_unused_columns=False,
+            #     dataloader_pin_memory=False,
+            #     fp16=False,
+            #     dataloader_num_workers=0,
+            #     weight_decay=0.01,
+            #     max_grad_norm=1.0,
+            #     report_to=None, use_cpu=True
+            # )
             training_args = TrainingArguments(
-                output_dir=model_dir, overwrite_output_dir=True, num_train_epochs=2,
-                per_device_train_batch_size=1, per_device_eval_batch_size=1, gradient_accumulation_steps=8,
-                learning_rate=5e-5, warmup_steps=50, logging_steps=20, save_steps=200,
-                eval_strategy="steps", eval_steps=200, save_total_limit=1, remove_unused_columns=False,
-                dataloader_pin_memory=False, fp16=False, dataloader_num_workers=0, weight_decay=0.01,
-                max_grad_norm=1.0, report_to=None, use_cpu=True
+                output_dir=model_dir,
+                overwrite_output_dir=True,
+                num_train_epochs=1,
+                per_device_train_batch_size=1,
+                per_device_eval_batch_size=1,
+                gradient_accumulation_steps=4,
+                learning_rate=1e-5,  # Reduced from 5e-5
+                warmup_steps=50,  # Increased from 25
+                logging_steps=50,
+                save_steps=500,
+                eval_strategy="steps",
+                eval_steps=500,
+                save_total_limit=1,
+                remove_unused_columns=False,
+                dataloader_pin_memory=False,
+                fp16=False,  # Disabled for CPU
+                dataloader_num_workers=0,
+                weight_decay=0.1,  # Increased from 0.01
+                max_grad_norm=0.5,  # Reduced from 1.0
+                report_to=None,
+                use_cpu=True,
+                adam_epsilon=1e-8,  # Added for stability
             )
-    
+        else:  # cpu_2 - Quality CPU - FIXED
+            # training_args = TrainingArguments(
+            #     output_dir=model_dir,
+            #     overwrite_output_dir=True,
+            #     num_train_epochs=2,
+            #     per_device_train_batch_size=1,
+            #     per_device_eval_batch_size=1,
+            #     gradient_accumulation_steps=8,
+            #     learning_rate=5e-5,
+            #     warmup_steps=50,
+            #     logging_steps=20,
+            #     save_steps=200,
+            #     eval_strategy="steps",
+            #     eval_steps=200,
+            #     save_total_limit=1,
+            #     remove_unused_columns=False,
+            #     dataloader_pin_memory=False,
+            #     fp16=False,
+            #     dataloader_num_workers=0,
+            #     weight_decay=0.01,
+            #     max_grad_norm=1.0,
+            #     report_to=None, use_cpu=True
+            # )
+            training_args = TrainingArguments(
+                output_dir=model_dir,
+                overwrite_output_dir=True,
+                num_train_epochs=2,
+                per_device_train_batch_size=1,
+                per_device_eval_batch_size=1,
+                gradient_accumulation_steps=8,
+                learning_rate=1e-5,  # Reduced from 5e-5
+                warmup_steps=100,  # Increased from 50
+                logging_steps=20,
+                save_steps=200,
+                eval_strategy="steps",
+                eval_steps=200,
+                save_total_limit=1,
+                remove_unused_columns=False,
+                dataloader_pin_memory=False,
+                fp16=False,  # Disabled for CPU
+                dataloader_num_workers=0,
+                weight_decay=0.1,  # Increased from 0.01
+                max_grad_norm=0.5,  # Reduced from 1.0
+                report_to=None,
+                use_cpu=True,
+                adam_epsilon=1e-8,  # Added for stability
+            )
     # Data collator for causal language modeling
     data_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
