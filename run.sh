@@ -589,12 +589,20 @@ if [ "$AI_PROVIDER" = "ollama" ]; then
             # Check if Ollama is installed
             if ! command -v ollama &> /dev/null; then
                 echo "❌ [ERROR] Ollama is not installed"
-                echo ""
-                echo "To install Ollama:"
-                echo "curl -fsSL https://ollama.ai/install.sh | sh"
-                echo ""
-                echo "Or visit https://ollama.ai for manual installation"
-                exit 1
+                
+                # Auto-install for WSL Ubuntu and Pop!_OS
+                if [[ "$OSTYPE" == "linux-gnu"* ]] && [[ ! "$OSTYPE" == "msys" && ! "$OSTYPE" == "win32" ]]; then
+                    echo "🚀 Auto-installing Ollama for Linux..."
+                    curl -fsSL https://ollama.com/install.sh | sh
+                    echo "✅ Ollama installed. Starting server..."
+                else
+                    echo ""
+                    echo "To install Ollama:"
+                    echo "curl -fsSL https://ollama.com/install.sh | sh"
+                    echo ""
+                    echo "Or visit https://ollama.ai for manual installation"
+                    exit 1
+                fi
             fi
             
             # Start Ollama in background
@@ -629,7 +637,37 @@ if [ "$AI_PROVIDER" = "ollama" ]; then
                     if timeout 15 curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
                         echo "✓ Successfully connected to existing Ollama instance"
                     else
-                        echo "⚠️  Cannot connect to Ollama. Continuing anyway..."
+                        echo "⚠️  Cannot connect to Ollama."
+                echo "💡 Options:"
+                echo "1. Continue anyway"
+                echo "2. Reinstall Ollama (Linux/WSL/Pop!_OS only)"
+                echo "3. Use OpenAI instead"
+                read -p "Choose option (1-3) [1]: " conn_choice
+                
+                case ${conn_choice:-1} in
+                    2)
+                        if [[ "$OSTYPE" == "linux-gnu"* ]] && [[ ! "$OSTYPE" == "msys" && ! "$OSTYPE" == "win32" ]]; then
+                            echo "🔄 Reinstalling Ollama..."
+                            pkill -f ollama || true
+                            sleep 2
+                            curl -fsSL https://ollama.com/install.sh | sh
+                            echo "✅ Ollama reinstalled. Restarting script..."
+                            exec "$0" "$@"
+                        else
+                            echo "❌ Auto-installation only available for Linux/WSL/Pop!_OS"
+                            echo "Please reinstall manually from https://ollama.ai"
+                            exit 1
+                        fi
+                        ;;
+                    3)
+                        echo "💡 Switching to OpenAI provider..."
+                        echo "Please set OPENAI_API_KEY in your .env file and run again"
+                        exit 1
+                        ;;
+                    *)
+                        echo "⚠️  Continuing anyway..."
+                        ;;
+                esac
                     fi
                 else
                     echo "🔧 Troubleshooting options:"
@@ -642,7 +680,6 @@ if [ "$AI_PROVIDER" = "ollama" ]; then
                     fi
                 fi
             fi
-        fi
     else
         echo "✓ Ollama server is running"
         # Double-check server responsiveness
@@ -671,13 +708,39 @@ if [ "$AI_PROVIDER" = "ollama" ]; then
             echo "Options:"
             echo "1. Try again with a smaller model"
             echo "2. Download manually: ollama pull $ai_model"
-            echo "3. Use OpenAI instead (set AI_PROVIDER=openai in .env)"
+            echo "3. Reinstall Ollama (for Linux/WSL/Pop!_OS)"
+            echo "4. Use OpenAI instead (set AI_PROVIDER=openai in .env)"
+            echo "5. Continue anyway"
             echo ""
-            read -p "Continue anyway? (y/N): " continue_choice
-            if [[ ! "$continue_choice" =~ ^[Yy]$ ]]; then
-                exit 1
-            fi
-            echo "⚠️  Continuing without model validation..."
+            read -p "Choose option (1-5): " fix_choice
+            
+            case $fix_choice in
+                3)
+                    if [[ "$OSTYPE" == "linux-gnu"* ]] && [[ ! "$OSTYPE" == "msys" && ! "$OSTYPE" == "win32" ]]; then
+                        echo "🔄 Reinstalling Ollama..."
+                        pkill -f ollama || true
+                        sleep 2
+                        curl -fsSL https://ollama.com/install.sh | sh
+                        echo "✅ Ollama reinstalled. Restarting script..."
+                        exec "$0" "$@"
+                    else
+                        echo "❌ Auto-installation only available for Linux/WSL/Pop!_OS"
+                        echo "Please reinstall manually from https://ollama.ai"
+                        exit 1
+                    fi
+                    ;;
+                4)
+                    echo "💡 Switching to OpenAI provider..."
+                    echo "Please set OPENAI_API_KEY in your .env file and run again"
+                    exit 1
+                    ;;
+                5)
+                    echo "⚠️  Continuing without model validation..."
+                    ;;
+                *)
+                    exit 1
+                    ;;
+            esac
         fi
     else
         echo "✓ Model '$ai_model' is available"

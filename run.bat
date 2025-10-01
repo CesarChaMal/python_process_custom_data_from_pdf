@@ -451,68 +451,165 @@ REM Validate AI provider setup and connectivity
 if "%AI_PROVIDER%"=="ollama" (
     echo 🏠 Validating Ollama setup...
     
-    REM Check if Ollama server is running
-    curl -s http://localhost:11434/api/tags >nul 2>&1
+    REM Check if Ollama server is running with timeout
+    echo Checking Ollama connectivity...
+    powershell -Command "try { Invoke-RestMethod -Uri 'http://localhost:11434/api/tags' -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
     if errorlevel 1 (
-        echo ⚠️  Ollama server is not running on localhost:11434
-        echo 🚀 Attempting to start Ollama server...
+        echo ⚠️  Ollama server connectivity issue on localhost:11434
         
-        REM Check if Ollama is installed
-        ollama --version >nul 2>&1
-        if errorlevel 1 (
-            echo ❌ [ERROR] Ollama is not installed
-            echo.
-            echo To install Ollama:
-            echo Visit https://ollama.ai and download the Windows installer
-            echo.
-            pause
-            exit /b 1
-        )
-        
-        REM Start Ollama in background
-        echo Starting Ollama server in background...
-        start /b ollama serve
-        
-        REM Wait for Ollama to start (up to 30 seconds)
-        echo Waiting for Ollama to start...
-        set /a count=0
-        :wait_ollama
-        timeout /t 1 /nobreak >nul
-        curl -s http://localhost:11434/api/tags >nul 2>&1
+        REM Check if Ollama process is already running
+        tasklist /FI "IMAGENAME eq ollama.exe" 2>nul | find /I "ollama.exe" >nul
         if not errorlevel 1 (
-            echo ✓ Ollama server started successfully
-            goto ollama_ready
-        )
-        set /a count+=1
-        if %count% lss 30 (
-            echo|set /p="."
-            goto wait_ollama
+            echo 💻 Ollama process detected, but not responding to API calls
+            echo This might be a startup delay or connectivity issue
+            echo Waiting 10 seconds for Ollama to fully initialize...
+            timeout /t 10 /nobreak >nul
+            
+            REM Try one more time with longer timeout
+            powershell -Command "try { Invoke-RestMethod -Uri 'http://localhost:11434/api/tags' -TimeoutSec 10 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
+            if not errorlevel 1 (
+                echo ✓ Ollama server is now responding
+            ) else (
+                echo ⚠️  Ollama still not responding, attempting restart...
+                REM Kill existing process and restart
+                taskkill /F /IM ollama.exe >nul 2>&1
+                timeout /t 3 /nobreak >nul
+            )
         )
         
-        REM Final check
-        echo.
-        echo ❌ [ERROR] Failed to start Ollama server
-        echo Try starting manually: ollama serve
-        pause
-        exit /b 1
+        REM Only try to start if we still can't connect
+        powershell -Command "try { Invoke-RestMethod -Uri 'http://localhost:11434/api/tags' -TimeoutSec 3 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
+        if errorlevel 1 (
+            REM Check if Ollama is installed
+            ollama --version >nul 2>&1
+            if errorlevel 1 (
+                echo ❌ [ERROR] Ollama is not installed
+                echo.
+                echo To install Ollama:
+                echo Visit https://ollama.ai and download the Windows installer
+                echo.
+                pause
+                exit /b 1
+            )
+            
+            REM Start Ollama in background
+            echo 🚀 Starting Ollama server in background...
+            start /b ollama serve
+            
+            REM Wait for Ollama to start (up to 30 seconds)
+            echo Waiting for Ollama to start...
+            set /a count=0
+            :wait_ollama
+            timeout /t 1 /nobreak >nul
+            powershell -Command "try { Invoke-RestMethod -Uri 'http://localhost:11434/api/tags' -TimeoutSec 3 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
+            if not errorlevel 1 (
+                echo ✓ Ollama server started successfully
+                goto ollama_ready
+            )
+            set /a count+=1
+            if %count% lss 30 (
+                echo|set /p="."
+                goto wait_ollama
+            )
+            
+            REM Final check after startup attempt
+            echo.
+            powershell -Command "try { Invoke-RestMethod -Uri 'http://localhost:11434/api/tags' -TimeoutSec 10 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
+            if errorlevel 1 (
+                echo ❌ [ERROR] Failed to start Ollama server
+                
+                REM Check if it's already running (common issue)
+                tasklist /FI "IMAGENAME eq ollama.exe" 2>nul | find /I "ollama.exe" >nul
+                if not errorlevel 1 (
+                    echo 💡 Ollama appears to already be running. Trying to connect...
+                    REM Give it more time and try again
+                    timeout /t 5 /nobreak >nul
+                    powershell -Command "try { Invoke-RestMethod -Uri 'http://localhost:11434/api/tags' -TimeoutSec 15 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
+                    if not errorlevel 1 (
+                        echo ✓ Successfully connected to existing Ollama instance
+                    ) else (
+                        echo ⚠️  Cannot connect to Ollama.
+                        echo 💡 Options:
+                        echo 1. Continue anyway
+                        echo 2. Reinstall Ollama ^(Windows: download from ollama.ai^)
+                        echo 3. Use OpenAI instead
+                        set /p conn_choice="Choose option (1-3) [1]: "
+                        if "!conn_choice!"=="" set conn_choice=1
+                        
+                        if "!conn_choice!"=="2" (
+                            echo 🔄 For Windows: Please download and reinstall from https://ollama.ai
+                            echo For WSL/Linux: Run 'curl -fsSL https://ollama.com/install.sh | sh'
+                            pause
+                            exit /b 1
+                        ) else if "!conn_choice!"=="3" (
+                            echo 💡 Switching to OpenAI provider...
+                            echo Please set OPENAI_API_KEY in your .env file and run again
+                            pause
+                            exit /b 1
+                        ) else (
+                            echo ⚠️  Continuing anyway...
+                        )
+                    )
+                ) else (
+                    echo 🔧 Troubleshooting options:
+                    echo 1. Try manually: ollama serve
+                    echo 2. Check if port 11434 is blocked
+                    echo 3. Use OpenAI instead ^(set AI_PROVIDER=openai in .env^)
+                    set /p continue_choice="Continue anyway? (y/N): "
+                    if /I not "!continue_choice!"=="y" (
+                        pause
+                        exit /b 1
+                    )
+                )
+            )
+        )
         
         :ollama_ready
     ) else (
         echo ✓ Ollama server is running
+        REM Double-check server responsiveness
+        powershell -Command "try { Invoke-RestMethod -Uri 'http://localhost:11434/api/tags' -TimeoutSec 5 | Out-Null; exit 0 } catch { exit 1 }" >nul 2>&1
+        if errorlevel 1 (
+            echo ⚠️  Ollama server appears unresponsive, continuing anyway...
+        )
     )
 )
     
-    REM Check if required model is available
+    REM Check if required model is available with timeout
     echo 🔍 Checking for required model...
-    curl -s http://localhost:11434/api/tags | findstr "%ai_model%" >nul 2>&1
+    powershell -Command "try { $response = Invoke-RestMethod -Uri 'http://localhost:11434/api/tags' -TimeoutSec 10; if ($response -match '%ai_model%') { exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>&1
     if errorlevel 1 (
         echo ⬇️  Model '%ai_model%' not found locally. Downloading...
         echo This may take several minutes depending on model size.
-        ollama pull "%ai_model%"
-        echo ✓ Model downloaded successfully
+        echo ⏰ Starting model download with timeout ^(10 minutes max^)...
+        
+        REM Download with timeout to prevent hanging
+        powershell -Command "$job = Start-Job -ScriptBlock { ollama pull '%ai_model%' }; if (Wait-Job $job -Timeout 600) { Receive-Job $job; Remove-Job $job; exit 0 } else { Remove-Job $job -Force; exit 1 }" >nul 2>&1
+        if not errorlevel 1 (
+            echo ✓ Model downloaded successfully
+        ) else (
+            echo ❌ [ERROR] Model download timed out or failed
+            echo This could be due to:
+            echo   - Slow internet connection
+            echo   - Large model size
+            echo   - Ollama server issues
+            echo.
+            echo Options:
+            echo 1. Try again with a smaller model
+            echo 2. Download manually: ollama pull %ai_model%
+            echo 3. Use OpenAI instead ^(set AI_PROVIDER=openai in .env^)
+            echo.
+            set /p continue_choice="Continue anyway? (y/N): "
+            if /I not "!continue_choice!"=="y" (
+                pause
+                exit /b 1
+            )
+            echo ⚠️  Continuing without model validation...
+        )
     ) else (
         echo ✓ Model '%ai_model%' is available
     )
+
 ) else if "%AI_PROVIDER%"=="openai" (
     echo 📡 Validating OpenAI setup...
     
