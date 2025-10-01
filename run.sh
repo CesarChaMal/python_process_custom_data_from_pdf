@@ -561,32 +561,53 @@ echo "✓ Found PDF input file"
 if [ "$AI_PROVIDER" = "ollama" ]; then
     echo "🏠 Validating Ollama setup..."
     
-    # Check if Ollama server is running
-    if ! curl -s http://localhost:11434/api/tags > /dev/null; then
-        echo "⚠️  Ollama server is not running on localhost:11434"
-        echo "🚀 Attempting to start Ollama server..."
+    # Check if Ollama server is running with timeout
+    echo "Checking Ollama connectivity..."
+    if ! timeout 5 curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+        echo "⚠️  Ollama server connectivity issue on localhost:11434"
         
-        # Check if Ollama is installed
-        if ! command -v ollama &> /dev/null; then
-            echo "❌ [ERROR] Ollama is not installed"
-            echo ""
-            echo "To install Ollama:"
-            echo "curl -fsSL https://ollama.ai/install.sh | sh"
-            echo ""
-            echo "Or visit https://ollama.ai for manual installation"
-            exit 1
+        # Check if Ollama process is already running
+        if pgrep -f "ollama" > /dev/null; then
+            echo "💻 Ollama process detected, but not responding to API calls"
+            echo "This might be a startup delay or connectivity issue"
+            echo "Waiting 10 seconds for Ollama to fully initialize..."
+            sleep 10
+            
+            # Try one more time with longer timeout
+            if timeout 10 curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+                echo "✓ Ollama server is now responding"
+            else
+                echo "⚠️  Ollama still not responding, attempting restart..."
+                # Kill existing process and restart
+                pkill -f ollama || true
+                sleep 3
+            fi
         fi
         
-        # Start Ollama in background
-        echo "Starting Ollama server in background..."
-        nohup ollama serve > ollama.log 2>&1 &
-        OLLAMA_PID=$!
-        echo "Ollama PID: $OLLAMA_PID"
+        # Only try to start if we still can't connect
+        if ! timeout 3 curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+            # Check if Ollama is installed
+            if ! command -v ollama &> /dev/null; then
+                echo "❌ [ERROR] Ollama is not installed"
+                echo ""
+                echo "To install Ollama:"
+                echo "curl -fsSL https://ollama.ai/install.sh | sh"
+                echo ""
+                echo "Or visit https://ollama.ai for manual installation"
+                exit 1
+            fi
+            
+            # Start Ollama in background
+            echo "🚀 Starting Ollama server in background..."
+            nohup ollama serve > ollama.log 2>&1 &
+            OLLAMA_PID=$!
+            echo "Ollama PID: $OLLAMA_PID"
+        fi
         
         # Wait for Ollama to start (up to 30 seconds)
         echo "Waiting for Ollama to start..."
         for i in {1..30}; do
-            if curl -s http://localhost:11434/api/tags > /dev/null; then
+            if timeout 3 curl -s http://localhost:11434/api/tags > /dev/null; then
                 echo "✓ Ollama server started successfully"
                 break
             fi
@@ -594,24 +615,70 @@ if [ "$AI_PROVIDER" = "ollama" ]; then
             sleep 1
         done
         
-        # Final check
-        if ! curl -s http://localhost:11434/api/tags > /dev/null; then
-            echo ""
-            echo "❌ [ERROR] Failed to start Ollama server"
-            echo "Check ollama.log for details"
-            exit 1
+            # Final check after startup attempt
+            if ! timeout 10 curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+                echo ""
+                echo "❌ [ERROR] Failed to start Ollama server"
+                echo "Check ollama.log for details"
+                
+                # Check if it's already running (common issue)
+                if grep -q "address already in use" ollama.log 2>/dev/null; then
+                    echo "💡 Ollama appears to already be running. Trying to connect..."
+                    # Give it more time and try again
+                    sleep 5
+                    if timeout 15 curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
+                        echo "✓ Successfully connected to existing Ollama instance"
+                    else
+                        echo "⚠️  Cannot connect to Ollama. Continuing anyway..."
+                    fi
+                else
+                    echo "🔧 Troubleshooting options:"
+                    echo "1. Try manually: ollama serve"
+                    echo "2. Check if port 11434 is blocked"
+                    echo "3. Use OpenAI instead (set AI_PROVIDER=openai in .env)"
+                    read -p "Continue anyway? (y/N): " continue_choice
+                    if [[ ! "$continue_choice" =~ ^[Yy]$ ]]; then
+                        exit 1
+                    fi
+                fi
+            fi
         fi
     else
         echo "✓ Ollama server is running"
+        # Double-check server responsiveness
+        if ! timeout 5 curl -s http://localhost:11434/api/tags > /dev/null; then
+            echo "⚠️  Ollama server appears unresponsive, continuing anyway..."
+        fi
     fi
     
-    # Check if required model is available
+    # Check if required model is available with timeout
     echo "🔍 Checking for required model..."
-    if ! curl -s http://localhost:11434/api/tags | grep -q "$ai_model"; then
+    if ! timeout 10 curl -s http://localhost:11434/api/tags | grep -q "$ai_model"; then
         echo "⬇️  Model '$ai_model' not found locally. Downloading..."
         echo "This may take several minutes depending on model size."
-        ollama pull "$ai_model"
-        echo "✓ Model downloaded successfully"
+        echo "⏰ Starting model download with timeout (10 minutes max)..."
+        
+        # Download with timeout to prevent hanging
+        if timeout 600 ollama pull "$ai_model"; then
+            echo "✓ Model downloaded successfully"
+        else
+            echo "❌ [ERROR] Model download timed out or failed"
+            echo "This could be due to:"
+            echo "  - Slow internet connection"
+            echo "  - Large model size"
+            echo "  - Ollama server issues"
+            echo ""
+            echo "Options:"
+            echo "1. Try again with a smaller model"
+            echo "2. Download manually: ollama pull $ai_model"
+            echo "3. Use OpenAI instead (set AI_PROVIDER=openai in .env)"
+            echo ""
+            read -p "Continue anyway? (y/N): " continue_choice
+            if [[ ! "$continue_choice" =~ ^[Yy]$ ]]; then
+                exit 1
+            fi
+            echo "⚠️  Continuing without model validation..."
+        fi
     else
         echo "✓ Model '$ai_model' is available"
     fi

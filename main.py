@@ -38,6 +38,7 @@ from transformers import (  # Transformer models and training
 )
 import torch  # PyTorch deep learning framework
 from training_health_monitor import TrainingHealthMonitor
+from training_utils import handle_training_error_menu, recreate_model_with_config
 
 # Optional PEFT (Parameter Efficient Fine-Tuning) support
 try:
@@ -404,24 +405,64 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
             
-        # Load base model with hardware-specific optimization
-        if torch.cuda.is_available():
-            # GPU configuration
-            model = AutoModelForCausalLM.from_pretrained(
-                base_model,
-                torch_dtype=torch.float16,
-                device_map="auto",
-                low_cpu_mem_usage=True,
-                max_memory={0: "6GB"}  # Very conservative for large model
-            )
-        else:
-            # CPU configuration - optimized for memory efficiency
-            model = AutoModelForCausalLM.from_pretrained(
-                base_model,
-                torch_dtype=torch.float32,
-                low_cpu_mem_usage=True,
-                use_cache=False  # Reduce memory usage on CPU
-            )
+        # Enhanced automatic environment detection and configuration
+        def get_optimal_device_config():
+            """Automatically detect hardware and return optimal configuration"""
+            if torch.cuda.is_available():
+                total_mem = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                gpu_name = torch.cuda.get_device_name(0)
+                
+                print(f"[INFO] GPU Detected: {gpu_name} ({total_mem:.1f}GB)")
+                
+                # Smart memory allocation based on GPU size
+                if total_mem >= 12:  # High-end GPU (RTX 4090, etc.)
+                    max_memory = "8GB"
+                    batch_size = 2
+                elif total_mem >= 8:   # Mid-range GPU
+                    max_memory = "6GB"
+                    batch_size = 2
+                else:  # Low-end GPU
+                    max_memory = "4GB"
+                    batch_size = 1
+                
+                return {
+                    'device_type': 'gpu',
+                    'config': {
+                        'torch_dtype': torch.float32,  # Universal compatibility
+                        'device_map': "auto",
+                        'low_cpu_mem_usage': True,
+                        'max_memory': {0: max_memory}
+                    },
+                    'training': {
+                        'per_device_train_batch_size': batch_size,
+                        'gradient_accumulation_steps': 8 // batch_size,
+                        'fp16': False,  # Always use FP32 for stability
+                        'use_cpu': False
+                    }
+                }
+            else:
+                print("[INFO] CPU Mode Detected - Optimizing for CPU training")
+                return {
+                    'device_type': 'cpu',
+                    'config': {
+                        'torch_dtype': torch.float32,
+                        'low_cpu_mem_usage': True,
+                        'use_cache': False
+                    },
+                    'training': {
+                        'per_device_train_batch_size': 1,
+                        'gradient_accumulation_steps': 8,
+                        'fp16': False,  # CPU doesn't support FP16
+                        'use_cpu': True
+                    }
+                }
+        
+        # Get optimal configuration for current hardware
+        device_config = get_optimal_device_config()
+        print(f"[INFO] Using {device_config['device_type'].upper()} optimized configuration")
+        
+        # Load model with optimal configuration
+        model = AutoModelForCausalLM.from_pretrained(base_model, **device_config['config'])
         
         print(f"[SUCCESS] Loaded model with {model.num_parameters():,} parameters")
         
@@ -462,123 +503,8 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                 model = AutoModelForCausalLM.from_pretrained(base_model, **config)
                 return model
             
-            def handle_error_menu():
-                """Handle error recovery menu with all options"""
-                nonlocal model, trainer, training_args, data_collator, train_dataset, eval_dataset
-                
-                while True:
-                    print("\n📋 Model Loading Failed - Available Options:")
-                    print("  1. Try smaller memory limit (2GB)")
-                    print("  2. Switch to CPU loading")
-                    print("  3. Run GPU cleanup utility")
-                    print("  4. Change base model (go back to model selection)")
-                    print("  5. Change training configuration (go back to training mode)")
-                    print("  6. Skip training and test existing model")
-                    print("  7. Exit and manually free GPU memory")
-                    print("")
-                    
-                    # Ensure all output is flushed before input
-                    import sys
-                    sys.stdout.flush()
-                    sys.stderr.flush()
-                    
-                    try:
-                        choice = input("Select option (1-7) [4]: ").strip()
-                        if not choice:
-                            choice = '4'
-                        
-                        if choice == '1':
-                            print("[INFO] Applying smaller memory limit (2GB)...")
-                            try:
-                                model = reload_model_with_config({
-                                    'torch_dtype': torch.float16,
-                                    'device_map': "auto",
-                                    'low_cpu_mem_usage': True,
-                                    'max_memory': {0: "2GB"}
-                                })
-                                print("[SUCCESS] Model loaded with 2GB memory limit")
-                                return True  # Success, continue with training
-                            except Exception as retry_e:
-                                print(f"[ERROR] 2GB limit failed: {retry_e}")
-                                continue
-                        elif choice == '2':
-                            print("[INFO] Switching to CPU loading...")
-                            try:
-                                model = reload_model_with_config({
-                                    'torch_dtype': torch.float32,
-                                    'low_cpu_mem_usage': True,
-                                    'use_cache': False
-                                })
-                                model = model.cpu()
-                                print("[SUCCESS] Model loaded on CPU")
-                                return True  # Success, continue with training
-                            except Exception as retry_e:
-                                print(f"[ERROR] CPU loading failed: {retry_e}")
-                                continue
-                        elif choice == '3':
-                            print("[INFO] Running GPU cleanup utility...")
-                            import subprocess
-                            try:
-                                subprocess.run(["python", "gpu_cleanup.py"], check=True)
-                                print("[INFO] GPU cleanup completed. Retrying model loading...")
-                                continue
-                            except Exception as cleanup_e:
-                                print(f"[ERROR] GPU cleanup failed: {cleanup_e}")
-                                print("[TIP] Run manually: python gpu_cleanup.py")
-                                continue
-                        elif choice == '4':
-                            print("[INFO] Returning to base model selection...")
-                            if 'BASE_MODEL' in os.environ:
-                                del os.environ['BASE_MODEL']
-                            clear_gpu_memory()
-                            return "restart"  # Signal to restart training function
-                        elif choice == '5':
-                            print("[INFO] Returning to training configuration...")
-                            if 'TRAINING_MODE' in os.environ:
-                                del os.environ['TRAINING_MODE']
-                            return "restart"  # Signal to restart training function
-                        elif choice == '6':
-                            print("[INFO] Skipping training and proceeding to model testing...")
-                            model_dir = "./models/jvm_troubleshooting_model"
-                            if os.path.exists(model_dir):
-                                print(f"[INFO] Found existing model at {model_dir}")
-                                print("\n🧪 Model Testing Options:")
-                                print("  1. Interactive testing with conversation memory (test_model.py)")
-                                print("  2. Quick batch testing (quick_test.py)")
-                                print("  3. Skip testing")
-                                
-                                try:
-                                    test_choice = input("\nChoose testing option (1-3) [1]: ").strip() or '1'
-                                    if test_choice == '1':
-                                        print("[INFO] Starting interactive testing...")
-                                        import subprocess
-                                        subprocess.run(["python", "test_model.py"])
-                                    elif test_choice == '2':
-                                        print("[INFO] Starting quick batch testing...")
-                                        import subprocess
-                                        subprocess.run(["python", "quick_test.py"])
-                                    elif test_choice == '3':
-                                        print("[INFO] Skipping testing")
-                                except (EOFError, KeyboardInterrupt):
-                                    print("\n[INFO] Testing skipped")
-                            else:
-                                print("[WARNING] No existing model found to test")
-                                print("[INFO] You can try downloading from Hugging Face:")
-                                print("  python model_utils.py recover")
-                            return False  # Exit training
-                        elif choice == '7':
-                            print("[INFO] Exiting. Please free GPU memory manually and retry.")
-                            return False  # Exit training
-                        else:
-                            print("Please enter 1, 2, 3, 4, 5, 6, or 7")
-                            continue
-                            
-                    except (EOFError, KeyboardInterrupt):
-                        print("\n[INFO] Using default option 4 (change model)")
-                        if 'BASE_MODEL' in os.environ:
-                            del os.environ['BASE_MODEL']
-                        clear_gpu_memory()
-                        return "restart"
+            # Use unified error handling menu
+            result = handle_training_error_menu(model, base_model, None, None)
             
             import sys
             if sys.stdin.isatty():
@@ -744,7 +670,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
             texts,
             truncation=True,
             padding="max_length",
-            max_length=512 if training_mode in ['gpu_1', 'gpu_4'] else 768,  # Adaptive context length
+            max_length=512 if device_config['device_type'] == 'cpu' else 768,  # Adaptive context length
             return_tensors=None
         )
         
@@ -802,30 +728,34 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
     # 3.- Missing parameters: No max_grad_norm in several configs(allowsgradientexplosion)
     # 4.- Adafactor optimizer: Can be unstable with certain model architectures
     # 5.- No adam_epsilon: Missing numerical stability parameter
+    # Universal training configuration using optimal device settings
+    base_training_config = {
+        'output_dir': model_dir,
+        'overwrite_output_dir': True,
+        'remove_unused_columns': False,
+        'dataloader_pin_memory': False,
+        'dataloader_num_workers': 0,
+        'report_to': None,
+        'max_grad_norm': 0.5,
+        'weight_decay': 0.1,
+        'adam_epsilon': 1e-8,
+        'optim': "adamw_torch",
+        'gradient_checkpointing': True,
+        **device_config['training']  # Apply device-specific settings
+    }
+    
     if finetune_method == "lora":
-        # LoRA configuration - FIXED for stability
+        # LoRA configuration - optimized for stability
         training_args = TrainingArguments(
-            output_dir=model_dir,
-            overwrite_output_dir=True,
-            num_train_epochs=3,  # Reduced from 5
-            per_device_train_batch_size=2,  # Reduced from 4
-            per_device_eval_batch_size=2,  # Reduced from 4
-            learning_rate=5e-5,  # Much lower - was 3e-4 (way too high!)
-            warmup_steps=200,  # Increased from 100
+            num_train_epochs=3,
+            learning_rate=5e-5,
+            warmup_steps=200,
             logging_steps=25,
             save_steps=250,
             eval_strategy="steps",
             eval_steps=250,
             save_total_limit=2,
-            remove_unused_columns=False,
-            dataloader_pin_memory=False,
-            fp16=True,  # Enable for stability
-            bf16=False,  # Disable bf16, use fp16 instead
-            dataloader_num_workers=0,
-            report_to=None,
-            max_grad_norm=0.5,  # ADD THIS - critical for stability
-            weight_decay=0.1,  # ADD THIS - helps prevent overfitting
-            adam_epsilon=1e-8,  # ADD THIS - numerical stability
+            **base_training_config
         )
         # training_args = TrainingArguments(
         #     output_dir=model_dir,
@@ -848,297 +778,32 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
         #     report_to=None,
         # )
     else:
-        # Full fine-tuning configurations
-        if training_mode == "gpu_1":  # Conservative - FIXED
-            # training_args = TrainingArguments(
-            #     output_dir=model_dir,
-            #     overwrite_output_dir=True,
-            #     num_train_epochs=2,
-            #     per_device_train_batch_size=1,
-            #     per_device_eval_batch_size=1,
-            #     gradient_accumulation_steps=8,
-            #     learning_rate=5e-5,
-            #     warmup_steps=50,
-            #     logging_steps=20,
-            #     save_steps=200,
-            #     eval_strategy="steps",
-            #     eval_steps=200,
-            #     save_total_limit=1,
-            #     remove_unused_columns=False,
-            #     dataloader_pin_memory=False,
-            #     fp16=False,
-            #     dataloader_num_workers=0,
-            #     weight_decay=0.01,
-            #     max_grad_norm=1.0,
-            #     report_to=None,
-            #     gradient_checkpointing=True,
-            #     optim="adafactor"
-            # )
+        # Full fine-tuning with simplified, hardware-adaptive configurations
+        if device_config['device_type'] == 'gpu':
+            # GPU training - single optimized configuration
             training_args = TrainingArguments(
-                output_dir=model_dir,
-                overwrite_output_dir=True,
-                num_train_epochs=2,
-                per_device_train_batch_size=1,
-                per_device_eval_batch_size=1,
-                gradient_accumulation_steps=8,
-                learning_rate=1e-5,  # Reduced from 5e-5
-                warmup_steps=100,  # Increased from 50
-                logging_steps=20,
-                save_steps=200,
-                eval_strategy="steps",
-                eval_steps=200,
-                save_total_limit=1,
-                remove_unused_columns=False,
-                dataloader_pin_memory=False,
-                fp16=True,  # Enable for stability
-                dataloader_num_workers=0,
-                weight_decay=0.1,  # Increased from 0.01
-                max_grad_norm=0.5,  # Reduced from 1.0
-                report_to=None,
-                gradient_checkpointing=True,
-                optim="adamw_torch",  # Changed from adafactor
-                adam_epsilon=1e-8,  # Added for stability
-            )
-        elif training_mode == "gpu_2":  # Balanced - NEEDS FIXING
-            # training_args = TrainingArguments(
-            #     output_dir=model_dir,
-            #     overwrite_output_dir=True,
-            #     num_train_epochs=3,
-            #     per_device_train_batch_size=2,
-            #     per_device_eval_batch_size=2,
-            #     gradient_accumulation_steps=4,
-            #     learning_rate=3e-5,
-            #     warmup_steps=100,
-            #     logging_steps=10,
-            #     save_steps=100,
-            #     eval_strategy="steps",
-            #     eval_steps=100,
-            #     save_total_limit=1,
-            #     remove_unused_columns=False,
-            #     dataloader_pin_memory=False,
-            #     fp16=False,
-            #     dataloader_num_workers=0,
-            #     weight_decay=0.01,
-            #     max_grad_norm=1.0,
-            #     report_to=None,
-            #     gradient_checkpointing=True
-            # )
-            training_args = TrainingArguments(
-                output_dir=model_dir,
-                overwrite_output_dir=True,
                 num_train_epochs=3,
-                per_device_train_batch_size=1,  # Reduced from 2
-                per_device_eval_batch_size=1,  # Reduced from 2
-                gradient_accumulation_steps=8,  # Increased from 4
-                learning_rate=5e-6,  # Much lower - was 3e-5
-                warmup_steps=200,  # Increased from 100
-                logging_steps=10,
-                save_steps=100,
-                eval_strategy="steps",
-                eval_steps=100,
-                save_total_limit=1,
-                remove_unused_columns=False,
-                dataloader_pin_memory=False,
-                fp16=True,  # Enable mixed precision to help with numerical stability
-                dataloader_num_workers=0,
-                weight_decay=0.1,  # Increased from 0.01
-                max_grad_norm=0.5,  # Reduced from 1.0 - critical for stability
-                report_to=None,
-                gradient_checkpointing=True,
-                optim="adamw_torch",  # More stable than default
-                adam_epsilon=1e-8,  # For numerical stability
-                warmup_ratio=0.1,  # Additional warmup
-            )
-        elif training_mode == "gpu_3":  # Aggressive - NEEDS FIXING
-            # training_args = TrainingArguments(
-            #     output_dir=model_dir,
-            #     overwrite_output_dir=True,
-            #     num_train_epochs=3,
-            #     per_device_train_batch_size=4,
-            #     per_device_eval_batch_size=4,
-            #     gradient_accumulation_steps=2,
-            #     learning_rate=3e-5,
-            #     warmup_steps=100,
-            #     logging_steps=10,
-            #     save_steps=100,
-            #     eval_strategy="steps",
-            #     eval_steps=100,
-            #     save_total_limit=2,
-            #     remove_unused_columns=False,
-            #     dataloader_pin_memory=False,
-            #     fp16=False,
-            #     dataloader_num_workers=0,
-            #     weight_decay=0.01,
-            #     max_grad_norm=1.0,
-            #     report_to=None
-            # )
-            training_args = TrainingArguments(
-                output_dir=model_dir,
-                overwrite_output_dir=True,
-                num_train_epochs=3,
-                per_device_train_batch_size=2,  # Reduced from 4
-                per_device_eval_batch_size=2,  # Reduced from 4
-                gradient_accumulation_steps=4,  # Increased from 2
-                learning_rate=1e-5,  # Reduced from 3e-5
-                warmup_steps=150,  # Increased from 100
+                learning_rate=5e-6,  # Conservative for stability
+                warmup_steps=200,
                 logging_steps=10,
                 save_steps=100,
                 eval_strategy="steps",
                 eval_steps=100,
                 save_total_limit=2,
-                remove_unused_columns=False,
-                dataloader_pin_memory=False,
-                fp16=True,  # Enable for stability
-                dataloader_num_workers=0,
-                weight_decay=0.1,  # Increased from 0.01
-                max_grad_norm=0.5,  # Reduced from 1.0
-                report_to=None,
-                gradient_checkpointing=True,  # ADD THIS for memory efficiency
-                adam_epsilon=1e-8,  # ADD THIS for stability
+                **base_training_config
             )
-        elif training_mode == "gpu_4":  # Extreme - NEEDS FIXING
-            # training_args = TrainingArguments(
-            #     output_dir=model_dir,
-            #     overwrite_output_dir=True,
-            #     num_train_epochs=3,
-            #     per_device_train_batch_size=1,
-            #     per_device_eval_batch_size=1,
-            #     gradient_accumulation_steps=16,
-            #     learning_rate=3e-5,
-            #     warmup_steps=100,
-            #     logging_steps=10,
-            #     save_steps=100,
-            #     eval_strategy="steps",
-            #     eval_steps=100,
-            #     save_total_limit=1,
-            #     remove_unused_columns=False,
-            #     dataloader_pin_memory=False,
-            #     fp16=False,
-            #     dataloader_num_workers=0,
-            #     weight_decay=0.01,
-            #     max_grad_norm=1.0,
-            #     report_to=None,
-            #     gradient_checkpointing=True,
-            #     optim="adafactor"
-            # )
+        else:
+            # CPU training - optimized for CPU performance
             training_args = TrainingArguments(
-                output_dir=model_dir,
-                overwrite_output_dir=True,
-                num_train_epochs=3,
-                per_device_train_batch_size=1,
-                per_device_eval_batch_size=1,
-                gradient_accumulation_steps=16,
-                learning_rate=5e-6,  # Reduced from 3e-5
-                warmup_steps=200,  # Increased from 100
-                logging_steps=10,
-                save_steps=100,
-                eval_strategy="steps",
-                eval_steps=100,
-                save_total_limit=1,
-                remove_unused_columns=False,
-                dataloader_pin_memory=False,
-                fp16=True,  # Enable for stability
-                dataloader_num_workers=0,
-                weight_decay=0.1,  # Increased from 0.01
-                max_grad_norm=0.3,  # Even lower for extreme mode
-                report_to=None,
-                gradient_checkpointing=True,
-                optim="adamw_torch",  # Changed from adafactor
-                adam_epsilon=1e-8,  # Added for stability
-            )
-        elif training_mode == "cpu_1":  # Fast CPU - FIXED
-            # training_args = TrainingArguments(
-            #     output_dir=model_dir,
-            #     overwrite_output_dir=True,
-            #     num_train_epochs=1,
-            #     per_device_train_batch_size=1,
-            #     per_device_eval_batch_size=1,
-            #     gradient_accumulation_steps=4,
-            #     learning_rate=5e-5,
-            #     warmup_steps=25,
-            #     logging_steps=50,
-            #     save_steps=500,
-            #     eval_strategy="steps",
-            #     eval_steps=500,
-            #     save_total_limit=1,
-            #     remove_unused_columns=False,
-            #     dataloader_pin_memory=False,
-            #     fp16=False,
-            #     dataloader_num_workers=0,
-            #     weight_decay=0.01,
-            #     max_grad_norm=1.0,
-            #     report_to=None, use_cpu=True
-            # )
-            training_args = TrainingArguments(
-                output_dir=model_dir,
-                overwrite_output_dir=True,
-                num_train_epochs=1,
-                per_device_train_batch_size=1,
-                per_device_eval_batch_size=1,
-                gradient_accumulation_steps=4,
-                learning_rate=1e-5,  # Reduced from 5e-5
-                warmup_steps=50,  # Increased from 25
-                logging_steps=50,
-                save_steps=500,
-                eval_strategy="steps",
-                eval_steps=500,
-                save_total_limit=1,
-                remove_unused_columns=False,
-                dataloader_pin_memory=False,
-                fp16=False,  # Disabled for CPU
-                dataloader_num_workers=0,
-                weight_decay=0.1,  # Increased from 0.01
-                max_grad_norm=0.5,  # Reduced from 1.0
-                report_to=None,
-                use_cpu=True,
-                adam_epsilon=1e-8,  # Added for stability
-            )
-        else:  # cpu_2 - Quality CPU - FIXED
-            # training_args = TrainingArguments(
-            #     output_dir=model_dir,
-            #     overwrite_output_dir=True,
-            #     num_train_epochs=2,
-            #     per_device_train_batch_size=1,
-            #     per_device_eval_batch_size=1,
-            #     gradient_accumulation_steps=8,
-            #     learning_rate=5e-5,
-            #     warmup_steps=50,
-            #     logging_steps=20,
-            #     save_steps=200,
-            #     eval_strategy="steps",
-            #     eval_steps=200,
-            #     save_total_limit=1,
-            #     remove_unused_columns=False,
-            #     dataloader_pin_memory=False,
-            #     fp16=False,
-            #     dataloader_num_workers=0,
-            #     weight_decay=0.01,
-            #     max_grad_norm=1.0,
-            #     report_to=None, use_cpu=True
-            # )
-            training_args = TrainingArguments(
-                output_dir=model_dir,
-                overwrite_output_dir=True,
-                num_train_epochs=2,
-                per_device_train_batch_size=1,
-                per_device_eval_batch_size=1,
-                gradient_accumulation_steps=8,
-                learning_rate=1e-5,  # Reduced from 5e-5
-                warmup_steps=100,  # Increased from 50
+                num_train_epochs=2,  # Fewer epochs for CPU
+                learning_rate=1e-5,
+                warmup_steps=100,
                 logging_steps=20,
                 save_steps=200,
                 eval_strategy="steps",
                 eval_steps=200,
                 save_total_limit=1,
-                remove_unused_columns=False,
-                dataloader_pin_memory=False,
-                fp16=False,  # Disabled for CPU
-                dataloader_num_workers=0,
-                weight_decay=0.1,  # Increased from 0.01
-                max_grad_norm=0.5,  # Reduced from 1.0
-                report_to=None,
-                use_cpu=True,
-                adam_epsilon=1e-8,  # Added for stability
+                **base_training_config
             )
     # Data collator for causal language modeling
     data_collator = DataCollatorForLanguageModeling(
@@ -1334,10 +999,10 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                             
                             model = AutoModelForCausalLM.from_pretrained(
                                 base_model,
-                                torch_dtype=torch.float16,
+                                torch_dtype=torch.float32,  # Use FP32 for stability
                                 device_map="auto",
                                 low_cpu_mem_usage=True,
-                                max_memory={0: "4GB"}  # Limit model to 4GB
+                                max_memory={0: "4GB"}
                             )
                             
                             trainer = Trainer(
@@ -1380,10 +1045,10 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                             
                             model = AutoModelForCausalLM.from_pretrained(
                                 base_model,
-                                torch_dtype=torch.float16,
+                                torch_dtype=torch.float32,  # Use FP32 for stability
                                 device_map="auto",
                                 low_cpu_mem_usage=True,
-                                max_memory={0: "2GB"}  # Very conservative
+                                max_memory={0: "2GB"}
                             )
                             
                             trainer = Trainer(
@@ -1405,7 +1070,15 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                                 
                         elif choice == '3':
                             print("[INFO] Switching to CPU training...")
-                            # Move model to CPU
+                            # Recreate model for CPU with FP32
+                            del model
+                            torch.cuda.empty_cache()
+                            model = AutoModelForCausalLM.from_pretrained(
+                                base_model,
+                                torch_dtype=torch.float32,  # FP32 for CPU
+                                low_cpu_mem_usage=True,
+                                use_cache=False
+                            )
                             model = model.cpu()
                             training_args.use_cpu = True
                             training_args.fp16 = False
@@ -1529,7 +1202,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                 
                 model = AutoModelForCausalLM.from_pretrained(
                     base_model,
-                    torch_dtype=torch.float16,
+                    torch_dtype=torch.float32,  # Use FP32 for stability
                     device_map="auto",
                     low_cpu_mem_usage=True,
                     max_memory={0: "4GB"}
@@ -1551,143 +1224,14 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                     print("[INFO] Run interactively for more options: python main.py")
                     return
         else:
-            # Handle any other training error with same comprehensive options
+            # Use unified error handling menu
             print("\n[INFO] Training Error Detected!")
-            
-            # Reuse the same error handling menu function
-            def handle_training_error_menu():
-                """Handle training error recovery menu"""
-                nonlocal model, trainer, training_args, data_collator, train_dataset, eval_dataset
-                
-                while True:
-                    print("\n📋 Training Failed - Available Options:")
-                    print("  1. Smart memory optimization (recommended for high-VRAM GPUs)")
-                    print("  2. Extreme memory efficiency (smallest possible batch)")
-                    print("  3. Switch to CPU training")
-                    print("  4. Run GPU cleanup utility")
-                    print("  5. Change base model (go back to model selection)")
-                    print("  6. Change training configuration (go back to training mode)")
-                    print("  7. Skip training and test existing model")
-                    print("  8. Exit and manually free GPU memory")
-                    
-                    try:
-                        choice = input("\nSelect option (1-8) [5]: ").strip() or '5'
-                        
-                        if choice in ['1', '2']:
-                            memory_limit = "4GB" if choice == '1' else "2GB"
-                            batch_steps = 16 if choice == '1' else 64
-                            print(f"[INFO] Applying {'smart' if choice == '1' else 'extreme'} memory optimization...")
-                            
-                            if torch.cuda.is_available():
-                                torch.cuda.empty_cache()
-                                torch.cuda.ipc_collect()
-                                import gc
-                                gc.collect()
-                            
-                            training_args.per_device_train_batch_size = 1
-                            training_args.gradient_accumulation_steps = batch_steps
-                            training_args.gradient_checkpointing = True
-                            training_args.optim = "adafactor"
-                            training_args.dataloader_pin_memory = False
-                            training_args.dataloader_num_workers = 0
-                            
-                            del model
-                            torch.cuda.empty_cache()
-                            model = AutoModelForCausalLM.from_pretrained(
-                                base_model, torch_dtype=torch.float16, device_map="auto",
-                                low_cpu_mem_usage=True, max_memory={0: memory_limit}
-                            )
-                            trainer = Trainer(model=model, args=training_args, data_collator=data_collator,
-                                             train_dataset=train_dataset, eval_dataset=eval_dataset)
-                            try:
-                                trainer.train()
-                                print(f"[SUCCESS] Training completed with {'smart' if choice == '1' else 'extreme'} optimization!")
-                                return True
-                            except Exception as retry_e:
-                                print(f"[ERROR] Optimization failed: {retry_e}")
-                                continue
-                        elif choice == '3':
-                            print("[INFO] Switching to CPU training...")
-                            model = model.cpu()
-                            training_args.use_cpu = True
-                            training_args.fp16 = False
-                            training_args.per_device_train_batch_size = 1
-                            training_args.gradient_accumulation_steps = 8
-                            trainer = Trainer(model=model, args=training_args, data_collator=data_collator,
-                                             train_dataset=train_dataset, eval_dataset=eval_dataset)
-                            try:
-                                trainer.train()
-                                print("[SUCCESS] Training completed on CPU!")
-                                return True
-                            except Exception as cpu_e:
-                                print(f"[ERROR] CPU training failed: {cpu_e}")
-                                return False
-                        elif choice == '4':
-                            print("[INFO] Running GPU cleanup utility...")
-                            import subprocess
-                            try:
-                                subprocess.run(["python", "gpu_cleanup.py"], check=True)
-                                print("[INFO] GPU cleanup completed. Retrying...")
-                                continue
-                            except Exception as cleanup_e:
-                                print(f"[ERROR] GPU cleanup failed: {cleanup_e}")
-                                print("[TIP] Run manually: python gpu_cleanup.py")
-                                continue
-                        elif choice == '5':
-                            print("[INFO] Returning to base model selection...")
-                            if 'BASE_MODEL' in os.environ:
-                                del os.environ['BASE_MODEL']
-                            return "restart"
-                        elif choice == '6':
-                            print("[INFO] Returning to training configuration...")
-                            if 'TRAINING_MODE' in os.environ:
-                                del os.environ['TRAINING_MODE']
-                            return "restart"
-                        elif choice == '7':
-                            print("[INFO] Skipping training and proceeding to model testing...")
-                            model_dir = "./models/jvm_troubleshooting_model"
-                            if os.path.exists(model_dir):
-                                print(f"[INFO] Found existing model at {model_dir}")
-                                print("\n🧪 Model Testing Options:")
-                                print("  1. Interactive testing with conversation memory (test_model.py)")
-                                print("  2. Quick batch testing (quick_test.py)")
-                                print("  3. Skip testing")
-                                
-                                try:
-                                    test_choice = input("\nChoose testing option (1-3) [1]: ").strip() or '1'
-                                    if test_choice == '1':
-                                        print("[INFO] Starting interactive testing...")
-                                        import subprocess
-                                        subprocess.run(["python", "test_model.py"])
-                                    elif test_choice == '2':
-                                        print("[INFO] Starting quick batch testing...")
-                                        import subprocess
-                                        subprocess.run(["python", "quick_test.py"])
-                                    elif test_choice == '3':
-                                        print("[INFO] Skipping testing")
-                                except (EOFError, KeyboardInterrupt):
-                                    print("\n[INFO] Testing skipped")
-                            else:
-                                print("[WARNING] No existing model found to test")
-                                print("[INFO] You can try downloading from Hugging Face:")
-                                print("  python model_utils.py recover")
-                            return False
-                        elif choice == '8':
-                            print("[INFO] Exiting. Check the error message above for details.")
-                            return False
-                        else:
-                            print("Please enter 1, 2, 3, 4, 5, 6, 7, or 8")
-                            continue
-                            
-                    except (EOFError, KeyboardInterrupt):
-                        print("\n[INFO] Using default option 5 (change model)")
-                        if 'BASE_MODEL' in os.environ:
-                            del os.environ['BASE_MODEL']
-                        return "restart"
             
             import sys
             if sys.stdin.isatty():
-                result = handle_training_error_menu()
+                result = handle_training_error_menu(model, base_model, training_args, 
+                                                   {'trainer': trainer, 'data_collator': data_collator, 
+                                                    'train_dataset': train_dataset, 'eval_dataset': eval_dataset})
                 if result == "restart":
                     return train_and_upload_model(dataset_dict, auth_token, username)
                 elif result == True:
