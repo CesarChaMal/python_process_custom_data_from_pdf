@@ -736,7 +736,6 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
         'dataloader_pin_memory': False,
         'dataloader_num_workers': 0,
         'report_to': None,
-        'max_grad_norm': 0.5,
         'weight_decay': 0.1,
         'adam_epsilon': 1e-8,
         'optim': "adamw_torch",
@@ -755,41 +754,23 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
             eval_strategy="steps",
             eval_steps=250,
             save_total_limit=2,
+            max_grad_norm=0.5,
             **base_training_config
         )
-        # training_args = TrainingArguments(
-        #     output_dir=model_dir,
-        #     overwrite_output_dir=True,
-        #     num_train_epochs=5,
-        #     per_device_train_batch_size=4,
-        #     per_device_eval_batch_size=4,
-        #     learning_rate=3e-4,
-        #     warmup_steps=100,
-        #     logging_steps=25,
-        #     save_steps=250,
-        #     eval_strategy="steps",
-        #     eval_steps=250,
-        #     save_total_limit=2,
-        #     remove_unused_columns=False,
-        #     dataloader_pin_memory=False,
-        #     fp16=False,
-        #     bf16=torch.cuda.is_available() and hasattr(torch.cuda, 'is_bf16_supported') and torch.cuda.is_bf16_supported(),
-        #     dataloader_num_workers=0,
-        #     report_to=None,
-        # )
     else:
         # Full fine-tuning with simplified, hardware-adaptive configurations
         if device_config['device_type'] == 'gpu':
-            # GPU training - single optimized configuration
+            # GPU training - ultra-stable configuration for DialoGPT-large
             training_args = TrainingArguments(
-                num_train_epochs=3,
-                learning_rate=5e-6,  # Conservative for stability
-                warmup_steps=200,
-                logging_steps=10,
-                save_steps=100,
+                num_train_epochs=2,
+                learning_rate=1e-6,  # Much lower for 774M param model
+                warmup_steps=50,
+                logging_steps=5,
+                save_steps=25,
                 eval_strategy="steps",
-                eval_steps=100,
-                save_total_limit=2,
+                eval_steps=25,
+                save_total_limit=1,
+                max_grad_norm=0.1,  # Very strict gradient clipping
                 **base_training_config
             )
         else:
@@ -803,6 +784,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                 eval_strategy="steps",
                 eval_steps=200,
                 save_total_limit=1,
+                max_grad_norm=0.5,
                 **base_training_config
             )
     # Data collator for causal language modeling
@@ -992,6 +974,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                             training_args.optim = "adafactor"
                             training_args.dataloader_pin_memory = False
                             training_args.dataloader_num_workers = 0
+                            training_args.max_grad_norm = 0.3
                             
                             # Recreate model with memory constraints
                             del model
@@ -1038,6 +1021,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                             training_args.optim = "adafactor"
                             training_args.dataloader_pin_memory = False
                             training_args.dataloader_num_workers = 0
+                            training_args.max_grad_norm = 0.1
                             
                             # Recreate model with extreme constraints
                             del model
@@ -1084,6 +1068,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                             training_args.fp16 = False
                             training_args.per_device_train_batch_size = 1
                             training_args.gradient_accumulation_steps = 8
+                            training_args.max_grad_norm = 0.5
                             
                             trainer = Trainer(
                                 model=model,
@@ -1195,6 +1180,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                 training_args.optim = "adafactor"
                 training_args.dataloader_pin_memory = False
                 training_args.dataloader_num_workers = 0
+                training_args.max_grad_norm = 0.3
                 
                 # Recreate model with memory limit
                 del model

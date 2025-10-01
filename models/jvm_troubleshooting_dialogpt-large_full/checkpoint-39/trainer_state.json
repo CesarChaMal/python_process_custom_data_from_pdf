@@ -11,23 +11,23 @@
   "log_history": [
     {
       "epoch": 0.8,
-      "grad_norm": NaN,
-      "learning_rate": 2.7e-06,
-      "loss": 684.0879,
+      "grad_norm": 21.188411712646484,
+      "learning_rate": 2.2500000000000002e-07,
+      "loss": 8.6506,
       "step": 10
     },
     {
       "epoch": 1.56,
-      "grad_norm": NaN,
-      "learning_rate": 5.7000000000000005e-06,
-      "loss": 0.0,
+      "grad_norm": 9.991877555847168,
+      "learning_rate": 4.7500000000000006e-07,
+      "loss": 8.9123,
       "step": 20
     },
     {
       "epoch": 2.32,
-      "grad_norm": NaN,
-      "learning_rate": 8.7e-06,
-      "loss": 0.0,
+      "grad_norm": 11.778035163879395,
+      "learning_rate": 7.25e-07,
+      "loss": 8.3714,
       "step": 30
     }
   ],

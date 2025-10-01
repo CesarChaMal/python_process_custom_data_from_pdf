@@ -1,31 +1,31 @@
 [
   {
-    "loss": 684.0879,
-    "grad_norm": NaN,
-    "learning_rate": 2.7e-06,
+    "loss": 8.6506,
+    "grad_norm": 21.188411712646484,
+    "learning_rate": 2.2500000000000002e-07,
     "epoch": 0.8,
     "step": 10
   },
   {
-    "loss": 0.0,
-    "grad_norm": NaN,
-    "learning_rate": 5.7000000000000005e-06,
+    "loss": 8.9123,
+    "grad_norm": 9.991877555847168,
+    "learning_rate": 4.7500000000000006e-07,
     "epoch": 1.56,
     "step": 20
   },
   {
-    "loss": 0.0,
-    "grad_norm": NaN,
-    "learning_rate": 8.7e-06,
+    "loss": 8.3714,
+    "grad_norm": 11.778035163879395,
+    "learning_rate": 7.25e-07,
     "epoch": 2.32,
     "step": 30
   },
   {
-    "train_runtime": 125.6552,
-    "train_samples_per_second": 2.387,
-    "train_steps_per_second": 0.31,
+    "train_runtime": 1655.1184,
+    "train_samples_per_second": 0.181,
+    "train_steps_per_second": 0.024,
     "total_flos": 979278888960000.0,
-    "train_loss": 175.40715144230768,
+    "train_loss": 8.560018881773336,
     "epoch": 3.0,
     "step": 39
   }

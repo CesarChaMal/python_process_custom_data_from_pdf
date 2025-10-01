@@ -5,7 +5,7 @@
   ],
   "attn_pdrop": 0.1,
   "bos_token_id": 50256,
-  "dtype": "float16",
+  "dtype": "float32",
   "embd_pdrop": 0.1,
   "eos_token_id": 50256,
   "initializer_range": 0.02,
