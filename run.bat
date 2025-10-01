@@ -1,6 +1,26 @@
 @echo off
 setlocal enabledelayedexpansion
 
+REM Parse command line arguments
+set NOCLEAN=false
+set NOINSTALL=false
+
+:parse_args
+if "%~1"=="" goto args_done
+if "%~1"=="--noclean" (
+    set NOCLEAN=true
+    shift
+    goto parse_args
+)
+if "%~1"=="--noinstall" (
+    set NOINSTALL=true
+    shift
+    goto parse_args
+)
+shift
+goto parse_args
+:args_done
+
 REM ============================================================================
 REM PDF to Q&A Dataset Generator - Windows Batch Launcher Script
 REM ============================================================================
@@ -35,6 +55,9 @@ REM - Cross-platform Python detection
 REM
 REM USAGE EXAMPLES:
 REM   run.bat                           - Interactive setup with defaults
+REM   run.bat --noclean                 - Skip virtual environment cleanup
+REM   run.bat --noinstall               - Skip dependency installation
+REM   run.bat --noclean --noinstall     - Skip both cleanup and installation
 REM   set AI_PROVIDER=openai && run.bat - Override AI provider for this run
 REM   set AI_MODEL=gpt-4 && run.bat     - Use specific model temporarily
 REM
@@ -119,11 +142,14 @@ REM This prevents conflicts with system-wide Python packages
 echo.
 echo [2/8] Setting up virtual environment...
 
-REM Remove existing virtual environment to ensure clean state
-REM This prevents issues with corrupted or outdated environments
-if exist ".venv" (
-    echo 🗑️  Removing existing virtual environment for clean setup...
-    rmdir /s /q .venv
+REM Remove existing virtual environment to ensure clean state (unless --noclean)
+if "%NOCLEAN%"=="false" (
+    if exist ".venv" (
+        echo 🗑️  Removing existing virtual environment for clean setup...
+        rmdir /s /q .venv
+    )
+) else (
+    echo ⏭️  Skipping virtual environment cleanup (--noclean)
 )
 
 REM Create new virtual environment
@@ -164,16 +190,21 @@ REM DEPENDENCY INSTALLATION
 REM ============================================================================
 REM Install required Python packages for the ML pipeline
 
-echo.
-echo [4/8] Installing ML pipeline dependencies...
-echo 📥 Installing packages from requirements.txt...
-
-REM Install dependencies with progress indication
-REM --upgrade ensures latest compatible versions
-pip install --upgrade pip
-pip install -r requirements.txt
-
-echo ✓ Dependencies installed successfully
+if "%NOINSTALL%"=="false" (
+    echo.
+    echo [4/8] Installing ML pipeline dependencies...
+    echo 📥 Installing packages from requirements.txt...
+    
+    REM Install dependencies with progress indication
+    REM --upgrade ensures latest compatible versions
+    pip install --upgrade pip
+    pip install -r requirements.txt
+    
+    echo ✓ Dependencies installed successfully
+) else (
+    echo.
+    echo [4/8] Skipping dependency installation (--noinstall)
+)
 
 REM ============================================================================
 REM ENVIRONMENT CONFIGURATION CHECK
@@ -423,18 +454,53 @@ if "%AI_PROVIDER%"=="ollama" (
     REM Check if Ollama server is running
     curl -s http://localhost:11434/api/tags >nul 2>&1
     if errorlevel 1 (
-        echo ❌ [ERROR] Ollama server is not running on localhost:11434
+        echo ⚠️  Ollama server is not running on localhost:11434
+        echo 🚀 Attempting to start Ollama server...
+        
+        REM Check if Ollama is installed
+        ollama --version >nul 2>&1
+        if errorlevel 1 (
+            echo ❌ [ERROR] Ollama is not installed
+            echo.
+            echo To install Ollama:
+            echo Visit https://ollama.ai and download the Windows installer
+            echo.
+            pause
+            exit /b 1
+        )
+        
+        REM Start Ollama in background
+        echo Starting Ollama server in background...
+        start /b ollama serve
+        
+        REM Wait for Ollama to start (up to 30 seconds)
+        echo Waiting for Ollama to start...
+        set /a count=0
+        :wait_ollama
+        timeout /t 1 /nobreak >nul
+        curl -s http://localhost:11434/api/tags >nul 2>&1
+        if not errorlevel 1 (
+            echo ✓ Ollama server started successfully
+            goto ollama_ready
+        )
+        set /a count+=1
+        if %count% lss 30 (
+            echo|set /p="."
+            goto wait_ollama
+        )
+        
+        REM Final check
         echo.
-        echo To fix this:
-        echo 1. Install Ollama from https://ollama.ai
-        echo 2. Start the server: ollama serve
-        echo 3. Run this script again
-        echo.
-        echo Ollama provides local, private AI processing without API costs.
+        echo ❌ [ERROR] Failed to start Ollama server
+        echo Try starting manually: ollama serve
         pause
         exit /b 1
+        
+        :ollama_ready
+    ) else (
+        echo ✓ Ollama server is running
     )
-    echo ✓ Ollama server is running
+)
     
     REM Check if required model is available
     echo 🔍 Checking for required model...
@@ -566,5 +632,9 @@ echo • Upload: Models and datasets can be uploaded to Hugging Face Hub
 echo • Documentation: See README.md for detailed usage instructions
 echo ============================================================================
 echo Thank you for using the PDF to Q&A Dataset Generator! 🎯
+
+REM Cleanup: Stop Ollama if we started it
+REM Note: Windows doesn't easily track background processes like Unix
+REM Users can manually stop ollama if needed
 
 pause

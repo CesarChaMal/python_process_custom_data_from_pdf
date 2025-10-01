@@ -78,7 +78,7 @@ PDF Document → Text Extraction → AI-Generated Q&A → Dataset Creation → M
 git clone <repository-url>
 cd python_process_custom_data_from_pdf
 
-# Run setup script
+# Run setup script (auto-starts Ollama)
 ./run.sh
 ```
 
@@ -88,8 +88,17 @@ cd python_process_custom_data_from_pdf
 git clone <repository-url>
 cd python_process_custom_data_from_pdf
 
-# Run setup script (Git Bash automatically detects Windows)
+# Run setup script (auto-detects Windows)
 ./run.sh
+```
+
+### Fast Development Mode
+```bash
+# First run (full setup)
+./run.sh
+
+# Subsequent runs (skip cleanup/install)
+./run.sh --noclean --noinstall
 ```
 
 ### Alternative Windows (Command Prompt)
@@ -162,95 +171,75 @@ HUGGING_FACE_HUB_TOKEN=your_hf_token_here
 
 ## Usage Examples
 
-### Example 1: Using Ollama (Default) - Pop!_OS/Ubuntu/WSL
+### Example 1: Using Ollama (Default) - Auto-start
 ```bash
-# 1. Start Ollama
-ollama serve
-
-# 2. Configure .env
+# Configure .env
 echo "AI_PROVIDER=ollama" > .env
 echo "HUGGING_FACE_HUB_TOKEN=hf_xxx" >> .env
 
-# 3. Run
+# Run (Ollama auto-starts)
 ./run.sh
 ```
 
-### Example 1b: Using Ollama - Windows Git Bash
+### Example 1b: Fast Development Iteration
 ```bash
-# 1. Start Ollama (in separate terminal)
-ollama serve
-
-# 2. Configure .env (Git Bash)
-echo "AI_PROVIDER=ollama" > .env
-echo "HUGGING_FACE_HUB_TOKEN=hf_xxx" >> .env
-
-# 3. Run
+# First run (full setup)
 ./run.sh
+
+# Subsequent runs (skip cleanup and install)
+./run.sh --noclean --noinstall
 ```
 
 ### Example 2: Using OpenAI GPT-4o-mini
 ```bash
-# 1. Configure .env
+# Configure .env
 echo "AI_PROVIDER=openai" > .env
 echo "AI_MODEL=gpt-4o-mini" >> .env
 echo "OPENAI_API_KEY=sk-xxx" >> .env
 echo "HUGGING_FACE_HUB_TOKEN=hf_xxx" >> .env
 
-# 2. Run
+# Run
 ./run.sh
 ```
 
-### Example 3: Using OpenAI GPT-4
+### Example 3: Skip Environment Setup (Fast)
 ```bash
-# 1. Configure .env
-echo "AI_PROVIDER=openai" > .env
-echo "AI_MODEL=gpt-4" >> .env
-echo "OPENAI_API_KEY=sk-xxx" >> .env
-
-# 2. Run (local only, no HF upload)
-python main.py
+# Skip virtual env cleanup and dependency install
+./run.sh --noclean --noinstall
 ```
 
 ### Example 4: Custom Ollama Model
 ```bash
-# 1. Pull custom model
-ollama pull llama3.2
-
-# 2. Configure .env
+# Configure .env
 echo "AI_PROVIDER=ollama" > .env
 echo "AI_MODEL=llama3.2" >> .env
 
-# 3. Run
+# Run (model auto-downloads if needed)
 ./run.sh
 ```
 
-### Example 5: Force Overwrite Existing Dataset
+### Example 5: Force Dataset Regeneration
 ```bash
-# 1. Configure .env to overwrite without prompt
+# Configure .env to overwrite without prompt
 echo "OVERWRITE_DATASET=true" >> .env
 
-# 2. Run (will overwrite existing dataset)
-python main.py
+# Run with existing environment
+./run.sh --noclean --noinstall
 ```
 
-### Example 6: Use Existing Dataset
+### Example 6: Development Workflow
 ```bash
-# 1. Configure .env to keep existing
-echo "OVERWRITE_DATASET=false" >> .env
-
-# 2. Run (will use existing dataset if found)
-python main.py
-```
-
-### Example 7: Train Model with Better Quality
-```bash
-# 1. Use interactive setup for training
+# Initial setup
 ./run.sh
-# Choose: Train model after dataset creation
-# Select: DialoGPT-medium for better quality
+
+# Quick iterations (reuse environment)
+./run.sh --noclean --noinstall
+
+# Clean restart when needed
+./run.sh
 ```
 
-### Example 8: Test Trained Model
+### Example 7: Test Trained Model
 ```bash
 # Interactive testing with conversation memory
 python test_model.py

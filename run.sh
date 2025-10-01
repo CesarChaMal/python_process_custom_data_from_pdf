@@ -34,6 +34,9 @@
 #
 # USAGE EXAMPLES:
 #   ./run.sh                    # Interactive setup with default settings
+#   ./run.sh --noclean          # Skip virtual environment cleanup
+#   ./run.sh --noinstall        # Skip dependency installation
+#   ./run.sh --noclean --noinstall # Skip both cleanup and installation
 #   AI_PROVIDER=openai ./run.sh # Override AI provider for this run
 #   AI_MODEL=gpt-4 ./run.sh     # Use specific model temporarily
 #
@@ -58,6 +61,26 @@
 # Author: Generated from PDF to Q&A Dataset Generator Pipeline
 # Purpose: Automated ML pipeline setup and execution
 # ============================================================================
+
+# Parse command line arguments
+NOCLEAN=false
+NOINSTALL=false
+
+for arg in "$@"; do
+    case $arg in
+        --noclean)
+            NOCLEAN=true
+            shift
+            ;;
+        --noinstall)
+            NOINSTALL=true
+            shift
+            ;;
+        *)
+            # Unknown option
+            ;;
+    esac
+done
 
 # Enable strict error handling
 # -e: Exit on any command failure
@@ -114,9 +137,8 @@ $PYTHON_CMD --version
 echo ""
 echo "[2/8] Setting up virtual environment..."
 
-# Remove existing virtual environment to ensure clean state
-# This prevents issues with corrupted or outdated environments
-if [ -d ".venv" ]; then
+# Remove existing virtual environment to ensure clean state (unless --noclean)
+if [ "$NOCLEAN" = false ] && [ -d ".venv" ]; then
     echo "🗑️  Removing existing virtual environment for clean setup..."
     
     # Kill any processes using the venv (especially pip with pydantic locks)
@@ -167,6 +189,8 @@ if [ -d ".venv" ]; then
         
         sleep 2
     done
+elif [ "$NOCLEAN" = true ]; then
+    echo "⏭️  Skipping virtual environment cleanup (--noclean)"
 fi
 
 # Use alternative directory name if original couldn't be removed
@@ -215,17 +239,22 @@ echo "✓ Virtual environment activated"
 # ============================================================================
 # Install required Python packages for the ML pipeline
 
-echo ""
-echo "[4/8] Installing ML pipeline dependencies..."
-echo "📥 Installing packages from requirements.txt..."
-
-# Install dependencies with progress indication
-# --upgrade ensures latest compatible versions
-# --quiet reduces output verbosity
-pip install --upgrade pip  # Ensure latest pip version
-pip install -r requirements.txt
-
-echo "✓ Dependencies installed successfully"
+if [ "$NOINSTALL" = false ]; then
+    echo ""
+    echo "[4/8] Installing ML pipeline dependencies..."
+    echo "📥 Installing packages from requirements.txt..."
+    
+    # Install dependencies with progress indication
+    # --upgrade ensures latest compatible versions
+    # --quiet reduces output verbosity
+    pip install --upgrade pip  # Ensure latest pip version
+    pip install -r requirements.txt
+    
+    echo "✓ Dependencies installed successfully"
+else
+    echo ""
+    echo "[4/8] Skipping dependency installation (--noinstall)"
+fi
 
 # ============================================================================
 # ENVIRONMENT CONFIGURATION CHECK
@@ -534,17 +563,47 @@ if [ "$AI_PROVIDER" = "ollama" ]; then
     
     # Check if Ollama server is running
     if ! curl -s http://localhost:11434/api/tags > /dev/null; then
-        echo "❌ [ERROR] Ollama server is not running on localhost:11434"
-        echo ""
-        echo "To fix this:"
-        echo "1. Install Ollama from https://ollama.ai"
-        echo "2. Start the server: ollama serve"
-        echo "3. Run this script again"
-        echo ""
-        echo "Ollama provides local, private AI processing without API costs."
-        exit 1
+        echo "⚠️  Ollama server is not running on localhost:11434"
+        echo "🚀 Attempting to start Ollama server..."
+        
+        # Check if Ollama is installed
+        if ! command -v ollama &> /dev/null; then
+            echo "❌ [ERROR] Ollama is not installed"
+            echo ""
+            echo "To install Ollama:"
+            echo "curl -fsSL https://ollama.ai/install.sh | sh"
+            echo ""
+            echo "Or visit https://ollama.ai for manual installation"
+            exit 1
+        fi
+        
+        # Start Ollama in background
+        echo "Starting Ollama server in background..."
+        nohup ollama serve > ollama.log 2>&1 &
+        OLLAMA_PID=$!
+        echo "Ollama PID: $OLLAMA_PID"
+        
+        # Wait for Ollama to start (up to 30 seconds)
+        echo "Waiting for Ollama to start..."
+        for i in {1..30}; do
+            if curl -s http://localhost:11434/api/tags > /dev/null; then
+                echo "✓ Ollama server started successfully"
+                break
+            fi
+            echo -n "."
+            sleep 1
+        done
+        
+        # Final check
+        if ! curl -s http://localhost:11434/api/tags > /dev/null; then
+            echo ""
+            echo "❌ [ERROR] Failed to start Ollama server"
+            echo "Check ollama.log for details"
+            exit 1
+        fi
+    else
+        echo "✓ Ollama server is running"
     fi
-    echo "✓ Ollama server is running"
     
     # Check if required model is available
     echo "🔍 Checking for required model..."
@@ -678,3 +737,11 @@ echo "• Upload: Models and datasets can be uploaded to Hugging Face Hub"
 echo "• Documentation: See README.md for detailed usage instructions"
 echo "============================================================================"
 echo "Thank you for using the PDF to Q&A Dataset Generator! 🎯"
+
+# Cleanup: Stop Ollama if we started it
+if [ ! -z "$OLLAMA_PID" ]; then
+    echo ""
+    echo "🛑 Stopping Ollama server (PID: $OLLAMA_PID)..."
+    kill $OLLAMA_PID 2>/dev/null || true
+    echo "✓ Ollama server stopped"
+fi
