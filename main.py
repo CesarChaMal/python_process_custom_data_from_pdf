@@ -1311,7 +1311,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
     if auth_token:
         try:
             print(f"[INFO] Uploading model to Hugging Face Hub as {model_id}...")
-        print(f"[INFO] Local model directory: {model_dir}")
+            print(f"[INFO] Local model directory: {model_dir}")
             
             # Initialize Hugging Face API
             api = HfApi()
