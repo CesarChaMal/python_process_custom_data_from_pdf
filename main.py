@@ -753,53 +753,53 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
         'optim': "adamw_torch",
         'gradient_checkpointing': False,  # Disable to prevent memory issues
         'save_safetensors': True,
-        'per_device_train_batch_size': 1,  # Force batch size 1
-        'gradient_accumulation_steps': 4,
+        'per_device_train_batch_size': 2,  # Larger batch size
+        'gradient_accumulation_steps': 2,  # Fewer accumulation steps
         'fp16': False,  # Force FP32
         'use_cpu': False if torch.cuda.is_available() else True
     }
     
     if finetune_method == "lora":
-        # LoRA configuration - ultra-stable for numerical safety
+        # LoRA configuration - effective learning
         training_args = TrainingArguments(
-            num_train_epochs=1,
-            learning_rate=5e-6,  # Very conservative learning rate
-            warmup_steps=50,
+            num_train_epochs=5,  # More epochs for LoRA
+            learning_rate=1e-4,  # Standard LoRA learning rate
+            warmup_steps=20,
             logging_steps=10,
-            save_steps=100,
+            save_steps=50,
             eval_strategy="steps",
-            eval_steps=100,
+            eval_steps=50,
             save_total_limit=1,
-            max_grad_norm=0.1,  # Very strict gradient clipping
+            max_grad_norm=1.0,  # Standard gradient clipping
             **base_training_config
         )
     else:
         # Full fine-tuning with simplified, hardware-adaptive configurations
         if device_config['device_type'] == 'gpu':
-            # GPU training - ultra-conservative configuration
+            # GPU training - aggressive for effective learning
             training_args = TrainingArguments(
-                num_train_epochs=1,
-                learning_rate=1e-8,  # Extremely low to prevent instability
-                warmup_steps=2,
-                logging_steps=20,
-                save_steps=100,
+                num_train_epochs=5,  # More epochs for better learning
+                learning_rate=2e-5,  # Much higher learning rate
+                warmup_steps=20,
+                logging_steps=5,
+                save_steps=25,
                 eval_strategy="no",
                 save_total_limit=1,
-                max_grad_norm=0.01,  # Very strict clipping
+                max_grad_norm=1.0,  # Standard clipping
                 **base_training_config
             )
         else:
-            # CPU training - stable configuration
+            # CPU training - effective configuration
             training_args = TrainingArguments(
-                num_train_epochs=1,
-                learning_rate=5e-6,  # Conservative learning rate
-                warmup_steps=50,
+                num_train_epochs=2,  # More epochs for CPU
+                learning_rate=2e-5,  # Higher learning rate for CPU
+                warmup_steps=20,
                 logging_steps=20,
                 save_steps=100,
                 eval_strategy="steps",
                 eval_steps=100,
                 save_total_limit=1,
-                max_grad_norm=0.1,  # Strict gradient clipping
+                max_grad_norm=0.5,  # Moderate gradient clipping
                 **base_training_config
             )
     # Data collator for causal language modeling
@@ -1392,6 +1392,12 @@ def main():
             print(f"[SUCCESS] Loaded dataset:")
             print(f"  - Training examples: {len(dataset_dict['train'])}")
             print(f"  - Test examples: {len(dataset_dict['test'])}")
+            
+            # Quick quality check on existing dataset
+            good_format = sum(1 for i in range(len(dataset_dict['train'])) 
+                            if '### Human:' in dataset_dict['train'][i]['text'] and '### Assistant:' in dataset_dict['train'][i]['text'])
+            format_percentage = (good_format / len(dataset_dict['train'])) * 100
+            print(f"[INFO] Dataset quality: {format_percentage:.1f}% proper Q&A format")
         except Exception as e:
             print(f"[ERROR] Failed to load existing dataset: {e}")
             print("[INFO] Will regenerate dataset...")
@@ -1461,6 +1467,29 @@ def main():
             os.makedirs("./dataset", exist_ok=True)
             dataset_dict.save_to_disk(dataset_path)
             print(f"[SUCCESS] Dataset saved to {dataset_path}")
+            
+            # Dataset quality check
+            print("[INFO] Performing dataset quality check...")
+            good_format = 0
+            total_examples = len(dataset_dict['train'])
+            
+            for i in range(total_examples):
+                text = dataset_dict['train'][i]['text']
+                if '### Human:' in text and '### Assistant:' in text:
+                    good_format += 1
+            
+            format_percentage = (good_format / total_examples) * 100
+            print(f"[INFO] Dataset quality: {good_format}/{total_examples} examples ({format_percentage:.1f}%) have proper Q&A format")
+            
+            if format_percentage < 90:
+                print("[WARNING] Dataset quality is below 90% - this may affect training effectiveness")
+            else:
+                print("[SUCCESS] Dataset quality is good for training")
+            
+            # Show sample to verify content quality
+            if total_examples > 0:
+                sample_text = dataset_dict['train'][0]['text']
+                print(f"[INFO] Sample Q&A preview: {sample_text[:200]}...")
             
         except Exception as e:
             print(f"[ERROR] Failed to create dataset: {e}")
