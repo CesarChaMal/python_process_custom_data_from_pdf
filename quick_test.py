@@ -98,15 +98,27 @@ def quick_test():
         
         # Load tokenizer and model with stable settings
         tokenizer = AutoTokenizer.from_pretrained(model_path)
-        model = AutoModelForCausalLM.from_pretrained(model_path)
-
-        # Force CPU loading to avoid CUDA assertion errors
-        # model = AutoModelForCausalLM.from_pretrained(
-        #     model_path,
-        #     torch_dtype=torch.float32,
-        #     device_map=None,
-        #     low_cpu_mem_usage=True
-        # )
+        model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            torch_dtype=torch.float32,
+            device_map=None,
+            low_cpu_mem_usage=True
+        )
+        
+        # Check for model corruption (NaN/inf values)
+        has_corruption = False
+        for name, param in model.named_parameters():
+            if torch.isnan(param).any() or torch.isinf(param).any():
+                has_corruption = True
+                break
+        
+        if has_corruption:
+            print("❌ Model corruption detected (NaN/inf values)!")
+            print("\n💡 To fix this:")
+            print("   1. Run model repair: python fix_model.py")
+            print("   2. Retrain with stable settings: python main.py")
+            print("   3. Use lower learning rates and gradient clipping")
+            return
         
         # Set to evaluation mode for inference
         model.eval()
@@ -165,18 +177,20 @@ def quick_test():
             
             # Model is on CPU, inputs already on CPU
             
-            # Generate response with optimized parameters
+            # Generate response with safe parameters
             with torch.no_grad():
                 outputs = model.generate(
                     input_ids=inputs['input_ids'],
                     attention_mask=inputs['attention_mask'],
-                    max_new_tokens=120,              # Sufficient for detailed answers
-                    temperature=0.8,
+                    max_new_tokens=50,               # Reduced for stability
+                    temperature=0.7,                 # Lower temperature
                     do_sample=True,
-                    top_p=0.95,
+                    top_p=0.9,                      # More conservative
                     pad_token_id=tokenizer.eos_token_id,
                     eos_token_id=tokenizer.eos_token_id,
-                    repetition_penalty=1.05
+                    repetition_penalty=1.1,         # Slightly higher
+                    bad_words_ids=None,
+                    no_repeat_ngram_size=2          # Prevent repetition
                 )
             
             # =============================================================================

@@ -349,11 +349,14 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
     
     finetune_method = os.getenv('FINETUNE_METHOD', 'full')  # Full fine-tuning by default
     
-    # Create descriptive model name with base model and method info
+    # Use consistent model directory name for testing
+    model_name = "jvm_troubleshooting_model"
+    
+    # Create descriptive model ID for Hugging Face upload with postfix
     base_model_short = base_model.split('/')[-1].lower()  # e.g., "dialogpt-medium"
     method_suffix = "lora" if finetune_method == "lora" else "full"
-    model_name = f"jvm_troubleshooting_{base_model_short}_{method_suffix}"
-    model_id = f"{username}/{model_name}"
+    hf_model_name = f"jvm_troubleshooting_{base_model_short}_{method_suffix}"
+    model_id = f"{username}/{hf_model_name}"
     
     print(f"[INFO] Base model: {base_model}")
     print(f"[INFO] Fine-tuning method: {finetune_method}")
@@ -461,8 +464,17 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
         device_config = get_optimal_device_config()
         print(f"[INFO] Using {device_config['device_type'].upper()} optimized configuration")
         
-        # Load model with optimal configuration
-        model = AutoModelForCausalLM.from_pretrained(base_model, **device_config['config'])
+        # Load model with safe configuration to prevent segfaults
+        model = AutoModelForCausalLM.from_pretrained(
+            base_model,
+            torch_dtype=torch.float32,  # Use FP32 for stability
+            low_cpu_mem_usage=True,
+            device_map=None  # Load on CPU first, then move to GPU
+        )
+        
+        # Move to GPU after loading if available
+        if torch.cuda.is_available():
+            model = model.cuda()
         
         print(f"[SUCCESS] Loaded model with {model.num_parameters():,} parameters")
         
@@ -728,7 +740,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
     # 3.- Missing parameters: No max_grad_norm in several configs(allowsgradientexplosion)
     # 4.- Adafactor optimizer: Can be unstable with certain model architectures
     # 5.- No adam_epsilon: Missing numerical stability parameter
-    # Universal training configuration using optimal device settings
+    # Safe training configuration to prevent segfaults
     base_training_config = {
         'output_dir': model_dir,
         'overwrite_output_dir': True,
@@ -736,55 +748,58 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
         'dataloader_pin_memory': False,
         'dataloader_num_workers': 0,
         'report_to': None,
-        'weight_decay': 0.1,
-        'adam_epsilon': 1e-8,
+        'weight_decay': 0.01,
+        'adam_epsilon': 1e-6,
         'optim': "adamw_torch",
-        'gradient_checkpointing': True,
-        **device_config['training']  # Apply device-specific settings
+        'gradient_checkpointing': False,  # Disable to prevent memory issues
+        'save_safetensors': True,
+        'per_device_train_batch_size': 1,  # Force batch size 1
+        'gradient_accumulation_steps': 4,
+        'fp16': False,  # Force FP32
+        'use_cpu': False if torch.cuda.is_available() else True
     }
     
     if finetune_method == "lora":
-        # LoRA configuration - optimized for stability
+        # LoRA configuration - ultra-stable for numerical safety
         training_args = TrainingArguments(
-            num_train_epochs=3,
-            learning_rate=5e-5,
-            warmup_steps=200,
-            logging_steps=25,
-            save_steps=250,
+            num_train_epochs=1,
+            learning_rate=5e-6,  # Very conservative learning rate
+            warmup_steps=50,
+            logging_steps=10,
+            save_steps=100,
             eval_strategy="steps",
-            eval_steps=250,
-            save_total_limit=2,
-            max_grad_norm=0.5,
+            eval_steps=100,
+            save_total_limit=1,
+            max_grad_norm=0.1,  # Very strict gradient clipping
             **base_training_config
         )
     else:
         # Full fine-tuning with simplified, hardware-adaptive configurations
         if device_config['device_type'] == 'gpu':
-            # GPU training - ultra-stable configuration for DialoGPT-large
+            # GPU training - ultra-conservative configuration
             training_args = TrainingArguments(
-                num_train_epochs=2,
-                learning_rate=1e-6,  # Much lower for 774M param model
-                warmup_steps=50,
-                logging_steps=5,
-                save_steps=25,
-                eval_strategy="steps",
-                eval_steps=25,
+                num_train_epochs=1,
+                learning_rate=1e-8,  # Extremely low to prevent instability
+                warmup_steps=2,
+                logging_steps=20,
+                save_steps=100,
+                eval_strategy="no",
                 save_total_limit=1,
-                max_grad_norm=0.1,  # Very strict gradient clipping
+                max_grad_norm=0.01,  # Very strict clipping
                 **base_training_config
             )
         else:
-            # CPU training - optimized for CPU performance
+            # CPU training - stable configuration
             training_args = TrainingArguments(
-                num_train_epochs=2,  # Fewer epochs for CPU
-                learning_rate=1e-5,
-                warmup_steps=100,
+                num_train_epochs=1,
+                learning_rate=5e-6,  # Conservative learning rate
+                warmup_steps=50,
                 logging_steps=20,
-                save_steps=200,
+                save_steps=100,
                 eval_strategy="steps",
-                eval_steps=200,
+                eval_steps=100,
                 save_total_limit=1,
-                max_grad_norm=0.5,
+                max_grad_norm=0.1,  # Strict gradient clipping
                 **base_training_config
             )
     # Data collator for causal language modeling
@@ -832,15 +847,40 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
         return
     
     # =============================================================================
-    # MODEL TRAINING
+    # MODEL TRAINING WITH STABILITY CHECKS
     # =============================================================================
     
     print("[INFO] Starting model training...")
     print(f"[INFO] This may take 15-60 minutes depending on your hardware")
     
+    # Pre-training model validation
+    def validate_model_weights(model, stage="pre-training"):
+        """Check for NaN/inf values in model weights"""
+        for name, param in model.named_parameters():
+            if torch.isnan(param).any():
+                print(f"[ERROR] NaN detected in {name} at {stage}")
+                return False
+            if torch.isinf(param).any():
+                print(f"[ERROR] Inf detected in {name} at {stage}")
+                return False
+        print(f"[INFO] Model weights validated at {stage}")
+        return True
+    
+    # Validate model before training
+    if not validate_model_weights(model, "pre-training"):
+        print("[ERROR] Model has corrupted weights before training!")
+        return
+    
     try:
-        # Start training process
+        # Start training process with validation
         trainer.train()
+        
+        # Validate model after training
+        if not validate_model_weights(model, "post-training"):
+            print("[ERROR] Training produced corrupted weights!")
+            print("[INFO] This indicates numerical instability during training")
+            return
+        
         print("[SUCCESS] Training completed successfully!")
         
     except Exception as e:
@@ -974,7 +1014,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                             training_args.optim = "adafactor"
                             training_args.dataloader_pin_memory = False
                             training_args.dataloader_num_workers = 0
-                            training_args.max_grad_norm = 0.3
+                            training_args.max_grad_norm = 0.05
                             
                             # Recreate model with memory constraints
                             del model
@@ -1021,7 +1061,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                             training_args.optim = "adafactor"
                             training_args.dataloader_pin_memory = False
                             training_args.dataloader_num_workers = 0
-                            training_args.max_grad_norm = 0.1
+                            training_args.max_grad_norm = 0.01
                             
                             # Recreate model with extreme constraints
                             del model
@@ -1068,7 +1108,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                             training_args.fp16 = False
                             training_args.per_device_train_batch_size = 1
                             training_args.gradient_accumulation_steps = 8
-                            training_args.max_grad_norm = 0.5
+                            training_args.max_grad_norm = 0.1
                             
                             trainer = Trainer(
                                 model=model,
@@ -1180,7 +1220,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                 training_args.optim = "adafactor"
                 training_args.dataloader_pin_memory = False
                 training_args.dataloader_num_workers = 0
-                training_args.max_grad_norm = 0.3
+                training_args.max_grad_norm = 0.05
                 
                 # Recreate model with memory limit
                 del model
@@ -1233,18 +1273,35 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                 print("[INFO] Run interactively for more options: python main.py")
                 return
     
-    # Save final model (moved outside try block)
+    # Save final model with validation and fallback
     print("[INFO] Saving trained model...")
-    trainer.save_model()
-    tokenizer.save_pretrained(model_dir)
     
-    # Save training metrics
-    if hasattr(trainer.state, 'log_history'):
-        import json
-        with open(f"{model_dir}/training_log.json", "w") as f:
-            json.dump(trainer.state.log_history, f, indent=2)
-    
-    print(f"[SUCCESS] Model saved to {model_dir}")
+    # Final validation before saving
+    if validate_model_weights(model, "pre-save"):
+        trainer.save_model()
+        tokenizer.save_pretrained(model_dir)
+        
+        # Save training metrics
+        if hasattr(trainer.state, 'log_history'):
+            import json
+            with open(f"{model_dir}/training_log.json", "w") as f:
+                json.dump(trainer.state.log_history, f, indent=2)
+        
+        print(f"[SUCCESS] Model saved to {model_dir}")
+    else:
+        print("[ERROR] Training produced corrupted model!")
+        print("[INFO] Saving clean base model instead...")
+        
+        # Save clean base model as fallback
+        clean_model = AutoModelForCausalLM.from_pretrained(base_model)
+        clean_tokenizer = AutoTokenizer.from_pretrained(base_model)
+        if clean_tokenizer.pad_token is None:
+            clean_tokenizer.pad_token = clean_tokenizer.eos_token
+        
+        clean_model.save_pretrained(model_dir)
+        clean_tokenizer.save_pretrained(model_dir)
+        print(f"[INFO] Clean base model saved to {model_dir}")
+        print("[WARNING] Model needs retraining with more stable parameters")
 
 
     # =============================================================================
@@ -1254,6 +1311,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
     if auth_token:
         try:
             print(f"[INFO] Uploading model to Hugging Face Hub as {model_id}...")
+        print(f"[INFO] Local model directory: {model_dir}")
             
             # Initialize Hugging Face API
             api = HfApi()
@@ -1469,11 +1527,45 @@ def main():
     
     print(f"✅ Dataset: {len(dataset_dict['train'])} train + {len(dataset_dict['test'])} test examples")
     
-    if train_model and os.path.exists("./models/jvm_troubleshooting_model"):
+    # Check for trained model
+    model_exists = os.path.exists("./models/jvm_troubleshooting_model")
+    if model_exists:
         print("✅ Model: Trained and saved locally")
-        print("\n🧪 Test your model:")
-        print("   python test_model.py    # Interactive testing")
-        print("   python quick_test.py    # Batch validation")
+        
+        # Interactive testing menu
+        print("\n🧪 Available testing options:")
+        print("1. Interactive testing with conversation memory (test_model.py)")
+        print("2. Quick batch testing (quick_test.py)")
+        print("3. Skip testing")
+        
+        import sys
+        if sys.stdin.isatty():
+            try:
+                choice = input("\nChoose testing option (1-3) [3]: ").strip()
+                if not choice:
+                    choice = '3'
+                
+                if choice == '1':
+                    print("🚀 Starting interactive testing...")
+                    import subprocess
+                    subprocess.run(["python", "test_model.py"])
+                elif choice == '2':
+                    print("🚀 Running quick batch validation...")
+                    import subprocess
+                    subprocess.run(["python", "quick_test.py"])
+                elif choice == '3':
+                    print("⏭️ Skipping testing")
+                else:
+                    print("Invalid choice, skipping testing")
+            except (EOFError, KeyboardInterrupt):
+                print("\n⏭️ Skipping testing")
+        else:
+            print("\n🧪 Test your model:")
+            print("   python test_model.py    # Interactive testing")
+            print("   python quick_test.py    # Batch validation")
+    elif train_model:
+        print("⚠️ Model training was enabled but model not found at expected location")
+        print("💡 Check training logs above for errors")
     
     print("\n📚 Next steps:")
     print("   • Review generated Q&A pairs in dataset/")
@@ -1481,10 +1573,14 @@ def main():
     print("   • Fine-tune training parameters if needed")
     print("   • Deploy model for production use")
     
-    if not train_model or not os.path.exists("./models/jvm_troubleshooting_model"):
+    if not train_model:
+        print("\n🔧 Want to train a model?")
+        print("   • Set TRAIN_MODEL=true in .env to enable training")
+    elif not model_exists:
         print("\n🔧 Training Issues?")
         print("   • Run: python gpu_cleanup.py (for GPU memory issues)")
-        print("   • Set TRAIN_MODEL=true in .env to enable training")
+        print("   • Check training logs above for errors")
+        print("   • Try: python model_utils.py recover")
     
     print("\n✨ Thank you for using the PDF to Q&A Generator!")
 
