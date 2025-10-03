@@ -774,18 +774,19 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
             **base_training_config
         )
     else:
-        # Full fine-tuning with simplified, hardware-adaptive configurations
+        # Full fine-tuning with ultra-aggressive parameters for JVM knowledge learning
         if device_config['device_type'] == 'gpu':
-            # GPU training - aggressive for effective learning
+            # GPU training - ultra-aggressive to override DialoGPT conversational bias
             training_args = TrainingArguments(
-                num_train_epochs=5,  # More epochs for better learning
-                learning_rate=2e-5,  # Much higher learning rate
-                warmup_steps=20,
+                num_train_epochs=8,  # Much more epochs for deeper learning
+                learning_rate=5e-5,  # Very aggressive learning rate
+                warmup_steps=10,     # Shorter warmup for faster aggressive learning
                 logging_steps=5,
                 save_steps=25,
                 eval_strategy="no",
                 save_total_limit=1,
-                max_grad_norm=1.0,  # Standard clipping
+                max_grad_norm=2.0,   # Higher gradient norm for stronger updates
+                weight_decay=0.001,  # Reduced weight decay for stronger learning
                 **base_training_config
             )
         else:
