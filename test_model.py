@@ -349,16 +349,19 @@ def generate_response_with_memory(model, tokenizer, question, conversation_histo
             outputs = model.generate(
                 input_ids=inputs['input_ids'],
                 attention_mask=inputs['attention_mask'],
-                max_new_tokens=150,              # Reasonable response length
+                max_new_tokens=120,              # Balanced response length
+                min_length=len(inputs['input_ids'][0]) + 25,  # Minimum response length
                 num_return_sequences=1,
                 temperature=0.8,                 # Balanced creativity
                 do_sample=True,                  # Enable sampling for variety
-                top_p=0.9,                      # Nucleus sampling
+                top_p=0.95,                     # Less restrictive nucleus sampling
+                top_k=50,                       # Add top-k sampling
                 pad_token_id=tokenizer.eos_token_id,
                 eos_token_id=tokenizer.eos_token_id,
-                repetition_penalty=1.2,         # Reduce repetition
+                repetition_penalty=1.15,        # Reduce repetition
                 no_repeat_ngram_size=3,         # Avoid 3-gram repetition
-                early_stopping=True             # Stop at natural endpoints
+                length_penalty=1.0,             # Encourage longer responses
+                early_stopping=False            # Don't stop too early
             )
         
         # =============================================================================

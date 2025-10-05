@@ -177,20 +177,23 @@ def quick_test():
             
             # Model is on CPU, inputs already on CPU
             
-            # Generate response with safe parameters
+            # Generate response with improved parameters
             with torch.no_grad():
                 outputs = model.generate(
                     input_ids=inputs['input_ids'],
                     attention_mask=inputs['attention_mask'],
-                    max_new_tokens=50,               # Reduced for stability
-                    temperature=0.7,                 # Lower temperature
+                    max_new_tokens=100,              # Increased for longer responses
+                    min_length=len(inputs['input_ids'][0]) + 30,  # Minimum response length
+                    temperature=0.8,                 # Slightly higher for creativity
                     do_sample=True,
-                    top_p=0.9,                      # More conservative
+                    top_p=0.95,                     # Less restrictive
+                    top_k=50,                       # Add top-k sampling
                     pad_token_id=tokenizer.eos_token_id,
                     eos_token_id=tokenizer.eos_token_id,
-                    repetition_penalty=1.1,         # Slightly higher
-                    bad_words_ids=None,
-                    no_repeat_ngram_size=2          # Prevent repetition
+                    repetition_penalty=1.15,        # Reduce repetition
+                    no_repeat_ngram_size=3,         # Prevent 3-gram repetition
+                    length_penalty=1.0,             # Encourage longer responses
+                    early_stopping=False            # Don't stop too early
                 )
             
             # =============================================================================
@@ -211,24 +214,34 @@ def quick_test():
                 # Remove conversation markers and clean text
                 assistant_response = assistant_response.replace('### Human:', '').strip()
                 
-                # Split into sentences and clean
-                sentences = [s.strip() for s in assistant_response.split('.') if s.strip()]
-                clean_sentences = []
+                # Better sentence processing
+                sentences = []
+                current_sentence = ""
                 
-                # Filter sentences for quality
+                for char in assistant_response:
+                    current_sentence += char
+                    if char in '.!?' and len(current_sentence.strip()) > 20:
+                        sentences.append(current_sentence.strip())
+                        current_sentence = ""
+                
+                # Add remaining text if substantial
+                if len(current_sentence.strip()) > 20:
+                    sentences.append(current_sentence.strip())
+                
+                # Filter quality sentences
+                clean_sentences = []
                 for sentence in sentences:
-                    if (len(sentence) > 10 and  # Minimum length
+                    if (len(sentence) > 25 and  # Higher minimum length
                         not sentence.startswith('###') and  # No markers
-                        len(sentence) < 150):  # Reasonable max length
+                        len(sentence) < 300 and  # Higher max length
+                        not sentence.count('*') > 3):  # Filter formatting artifacts
                         clean_sentences.append(sentence)
-                        if len(clean_sentences) >= 2:  # Limit to 2 sentences
+                        if len(clean_sentences) >= 3:  # Allow up to 3 sentences
                             break
                 
                 # Format final response
                 if clean_sentences:
-                    clean_response = '. '.join(clean_sentences)
-                    if not clean_response.endswith('.'):
-                        clean_response += '.'
+                    clean_response = ' '.join(clean_sentences)  # Use space instead of '. '
                     
                     print(f"   ✅ Answer: {clean_response}")
                     successful_tests += 1
