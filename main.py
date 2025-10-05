@@ -748,7 +748,6 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
         'dataloader_pin_memory': False,
         'dataloader_num_workers': 0,
         'report_to': None,
-        'weight_decay': 0.01,
         'adam_epsilon': 1e-6,
         'optim': "adamw_torch",
         'gradient_checkpointing': False,  # Disable to prevent memory issues
