@@ -161,7 +161,7 @@ def create_model_card(
         # Performance Metrics (can be expanded)
         '{accuracy}': "Not evaluated",  # Placeholder for future metrics
         '{perplexity}': "Not evaluated",  # Placeholder for future metrics
-    }\n    
+    }    
     # Apply all replacements to the template
     model_card = template
     for placeholder, value in replacements.items():
