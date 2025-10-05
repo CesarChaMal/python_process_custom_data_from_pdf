@@ -1524,10 +1524,10 @@ def main():
                 try:
                     username = HfApi(token=auth_token).whoami()["name"]
                     train_and_upload_model(dataset_dict, auth_token, username)
-            except Exception as e:
-                print(f"[ERROR] Failed to get username from token: {e}")
-                print("[INFO] Training locally without upload...")
-                train_and_upload_model(dataset_dict, None, "local")
+                except Exception as e:
+                    print(f"[ERROR] Failed to get username from token: {e}")
+                    print("[INFO] Training locally without upload...")
+                    train_and_upload_model(dataset_dict, None, "local")
         else:
             print("[INFO] Training locally (no Hugging Face token provided)")
             train_and_upload_model(dataset_dict, None, "local")
