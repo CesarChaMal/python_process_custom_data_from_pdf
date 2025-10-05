@@ -39,6 +39,9 @@ from transformers import (  # Transformer models and training
 import torch  # PyTorch deep learning framework
 from training_health_monitor import TrainingHealthMonitor
 from training_utils import handle_training_error_menu, recreate_model_with_config
+from create_model_card import generate_and_upload_model_card
+from check_hf import check_hf_connection
+from check_gpu import check_gpu
 
 # Optional PEFT (Parameter Efficient Fine-Tuning) support
 try:
@@ -1332,11 +1335,33 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
             
             print(f"[SUCCESS] Model uploaded to: https://huggingface.co/{model_id}")
             
+            # Generate and upload model card
+            print("[INFO] Generating model card...")
+            generate_and_upload_model_card(
+                model_id=model_id,
+                auth_token=auth_token,
+                base_model=base_model,
+                finetune_method=finetune_method,
+                train_size=len(dataset_dict['train']),
+                test_size=len(dataset_dict['test'])
+            )
+            
         except Exception as e:
             print(f"[ERROR] Failed to upload model to Hugging Face: {e}")
             print("[INFO] Model is still available locally for testing")
     else:
         print("[INFO] No Hugging Face token provided - model saved locally only")
+        
+        # Generate local model card
+        print("[INFO] Generating local model card...")
+        generate_and_upload_model_card(
+            model_id="local/jvm_troubleshooting_model",
+            auth_token=None,
+            base_model=base_model,
+            finetune_method=finetune_method,
+            train_size=len(dataset_dict['train']),
+            test_size=len(dataset_dict['test'])
+        )
 
 # =============================================================================
 # MAIN PROCESSING PIPELINE
@@ -1531,10 +1556,19 @@ def main():
     if train_model:
         print("[INFO] Starting model training pipeline...")
         
+        # Show GPU info before training
+        check_gpu()
+        
         if auth_token:
-            try:
-                username = HfApi(token=auth_token).whoami()["name"]
-                train_and_upload_model(dataset_dict, auth_token, username)
+            # Validate HF connection before training
+            if not check_hf_connection():
+                print("[ERROR] Hugging Face connection failed - training locally only")
+                auth_token = None
+                train_and_upload_model(dataset_dict, None, "local")
+            else:
+                try:
+                    username = HfApi(token=auth_token).whoami()["name"]
+                    train_and_upload_model(dataset_dict, auth_token, username)
             except Exception as e:
                 print(f"[ERROR] Failed to get username from token: {e}")
                 print("[INFO] Training locally without upload...")
