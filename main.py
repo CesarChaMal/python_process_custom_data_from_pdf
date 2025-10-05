@@ -1021,17 +1021,14 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                             training_args.dataloader_num_workers = 0
                             training_args.max_grad_norm = 0.05
                             
-                            # Recreate model with memory constraints
+                            # Recreate model with memory constraints using utility function
                             del model
-                            torch.cuda.empty_cache()
-                            
-                            model = AutoModelForCausalLM.from_pretrained(
-                                base_model,
-                                torch_dtype=torch.float32,  # Use FP32 for stability
-                                device_map="auto",
-                                low_cpu_mem_usage=True,
-                                max_memory={0: "4GB"}
-                            )
+                            model = recreate_model_with_config(base_model, {
+                                'torch_dtype': torch.float32,
+                                'device_map': "auto",
+                                'low_cpu_mem_usage': True,
+                                'max_memory': {0: "4GB"}
+                            })
                             
                             trainer = Trainer(
                                 model=model,
@@ -1068,17 +1065,14 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                             training_args.dataloader_num_workers = 0
                             training_args.max_grad_norm = 0.01
                             
-                            # Recreate model with extreme constraints
+                            # Recreate model with extreme constraints using utility function
                             del model
-                            torch.cuda.empty_cache()
-                            
-                            model = AutoModelForCausalLM.from_pretrained(
-                                base_model,
-                                torch_dtype=torch.float32,  # Use FP32 for stability
-                                device_map="auto",
-                                low_cpu_mem_usage=True,
-                                max_memory={0: "2GB"}
-                            )
+                            model = recreate_model_with_config(base_model, {
+                                'torch_dtype': torch.float32,
+                                'device_map': "auto",
+                                'low_cpu_mem_usage': True,
+                                'max_memory': {0: "2GB"}
+                            })
                             
                             trainer = Trainer(
                                 model=model,
@@ -1099,16 +1093,13 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                                 
                         elif choice == '3':
                             print("[INFO] Switching to CPU training...")
-                            # Recreate model for CPU with FP32
+                            # Recreate model for CPU using utility function
                             del model
-                            torch.cuda.empty_cache()
-                            model = AutoModelForCausalLM.from_pretrained(
-                                base_model,
-                                torch_dtype=torch.float32,  # FP32 for CPU
-                                low_cpu_mem_usage=True,
-                                use_cache=False
-                            )
-                            model = model.cpu()
+                            model = recreate_model_with_config(base_model, {
+                                'torch_dtype': torch.float32,
+                                'low_cpu_mem_usage': True,
+                                'use_cache': False
+                            }).cpu()
                             training_args.use_cpu = True
                             training_args.fp16 = False
                             training_args.per_device_train_batch_size = 1
@@ -1227,17 +1218,14 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                 training_args.dataloader_num_workers = 0
                 training_args.max_grad_norm = 0.05
                 
-                # Recreate model with memory limit
+                # Recreate model with memory limit using utility function
                 del model
-                torch.cuda.empty_cache()
-                
-                model = AutoModelForCausalLM.from_pretrained(
-                    base_model,
-                    torch_dtype=torch.float32,  # Use FP32 for stability
-                    device_map="auto",
-                    low_cpu_mem_usage=True,
-                    max_memory={0: "4GB"}
-                )
+                model = recreate_model_with_config(base_model, {
+                    'torch_dtype': torch.float32,
+                    'device_map': "auto",
+                    'low_cpu_mem_usage': True,
+                    'max_memory': {0: "4GB"}
+                })
                 
                 trainer = Trainer(
                     model=model,
