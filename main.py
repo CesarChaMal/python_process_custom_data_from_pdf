@@ -42,6 +42,8 @@ from training_utils import handle_training_error_menu, recreate_model_with_confi
 from create_model_card import generate_and_upload_model_card
 from check_hf import check_hf_connection
 from check_gpu import check_gpu
+from upload_model import upload_model_to_hf
+from upload_dataset import upload_dataset_to_hf
 
 # Optional PEFT (Parameter Efficient Fine-Tuning) support
 try:
@@ -1312,43 +1314,15 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
     # =============================================================================
     
     if auth_token:
-        try:
-            print(f"[INFO] Uploading model to Hugging Face Hub as {model_id}...")
-            print(f"[INFO] Local model directory: {model_dir}")
-            
-            # Initialize Hugging Face API
-            api = HfApi()
-            
-            # Ensure repository exists (ignore if already exists)
-            try:
-                create_repo(repo_id=model_id, token=auth_token, repo_type="model", exist_ok=True)
-            except HfHubHTTPError:
-                pass  # Repository already exists, continue with upload
-            
-            # Upload all model files (this will overwrite existing files)
-            api.upload_folder(
-                folder_path=model_dir,
-                repo_id=model_id,
-                token=auth_token,
-                repo_type="model"
-            )
-            
-            print(f"[SUCCESS] Model uploaded to: https://huggingface.co/{model_id}")
-            
-            # Generate and upload model card
-            print("[INFO] Generating model card...")
-            generate_and_upload_model_card(
-                model_id=model_id,
-                auth_token=auth_token,
-                base_model=base_model,
-                finetune_method=finetune_method,
-                train_size=len(dataset_dict['train']),
-                test_size=len(dataset_dict['test'])
-            )
-            
-        except Exception as e:
-            print(f"[ERROR] Failed to upload model to Hugging Face: {e}")
-            print("[INFO] Model is still available locally for testing")
+        upload_model_to_hf(
+            model_dir=model_dir,
+            model_id=model_id,
+            auth_token=auth_token,
+            base_model=base_model,
+            finetune_method=finetune_method,
+            train_size=len(dataset_dict['train']),
+            test_size=len(dataset_dict['test'])
+        )
     else:
         print("[INFO] No Hugging Face token provided - model saved locally only")
         
@@ -1522,30 +1496,11 @@ def main():
         
         # Step 4: Upload dataset to Hugging Face Hub
         if auth_token:
-            try:
-                # Get username from token
-                username = HfApi(token=auth_token).whoami()["name"]
-                repo_id = f"{username}/{dataset_name}"
-                
-                print(f"[INFO] Uploading dataset to {repo_id}...")
-                
-                # Create repository
-                try:
-                    create_repo(repo_id=repo_id, token=auth_token, repo_type="dataset")
-                    print(f"[SUCCESS] Repository {repo_id} created!")
-                except HfHubHTTPError as e:
-                    if "already exists" in str(e):
-                        print(f"[INFO] Repository {repo_id} already exists, updating...")
-                    else:
-                        raise e
-                
-                # Push dataset
-                dataset_dict.push_to_hub(repo_id, token=auth_token)
-                print(f"[SUCCESS] Dataset uploaded to: https://huggingface.co/datasets/{repo_id}")
-                
-            except Exception as e:
-                print(f"[ERROR] Failed to upload dataset: {e}")
-                print("[INFO] Dataset is still available locally")
+            upload_dataset_to_hf(
+                dataset_path=dataset_path,
+                dataset_name=dataset_name,
+                auth_token=auth_token
+            )
         else:
             print("[INFO] No Hugging Face token - dataset saved locally only")
     
