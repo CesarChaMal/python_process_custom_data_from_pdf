@@ -78,21 +78,55 @@ def upload_dataset_to_hf(dataset_path: str, dataset_name: str, auth_token: str, 
         repo_id = f"{username}/{dataset_name}"
         print(f"[INFO] Target repository: {repo_id}")
         
-        # Create or update repository
+        # Create or update repository with overwrite logic
         print("[INFO] Creating/updating repository...")
         try:
             create_repo(repo_id=repo_id, token=auth_token, repo_type="dataset")
             print(f"[SUCCESS] Repository {repo_id} created!")
         except HfHubHTTPError as e:
-            if "already exists" in str(e):
-                print(f"[INFO] Repository {repo_id} already exists, updating...")
+            if "already exists" in str(e) or "409" in str(e):
+                print(f"[INFO] Repository {repo_id} already exists")
+                
+                # Check if we should overwrite
+                overwrite = os.getenv('OVERWRITE_DATASET', 'false').lower() == 'true'
+                if overwrite:
+                    print("[INFO] OVERWRITE_DATASET=true, updating existing repository...")
+                else:
+                    # Ask user for confirmation
+                    import sys
+                    if sys.stdin.isatty():
+                        try:
+                            response = input("[PROMPT] Repository exists. Overwrite? (y/n) [n]: ").strip().lower()
+                            if response != 'y':
+                                print("[INFO] Upload cancelled by user")
+                                return False
+                        except (EOFError, KeyboardInterrupt):
+                            print("\n[INFO] Upload cancelled")
+                            return False
+                    else:
+                        print("[INFO] Non-interactive mode: skipping upload of existing repository")
+                        print("[TIP] Set OVERWRITE_DATASET=true to force overwrite")
+                        return False
             else:
                 print(f"[ERROR] Failed to create repository: {e}")
                 return False
         
-        # Upload dataset
+        # Upload dataset with verification
         print("[INFO] Uploading dataset to Hugging Face Hub...")
         dataset_dict.push_to_hub(repo_id, token=auth_token)
+        
+        # Verify upload by downloading a sample
+        print("[INFO] Verifying upload...")
+        try:
+            from datasets import load_dataset
+            verify_dataset = load_dataset(repo_id, split='train[:1]', token=auth_token)
+            if len(verify_dataset) > 0:
+                print("[SUCCESS] Upload verification passed!")
+            else:
+                print("[WARNING] Upload verification failed - dataset appears empty")
+        except Exception as verify_e:
+            print(f"[WARNING] Could not verify upload: {verify_e}")
+            print("[INFO] Dataset may still have uploaded successfully")
         
         print(f"[SUCCESS] Dataset uploaded successfully!")
         print(f"[INFO] View at: https://huggingface.co/datasets/{repo_id}")
