@@ -182,18 +182,18 @@ def quick_test():
                 outputs = model.generate(
                     input_ids=inputs['input_ids'],
                     attention_mask=inputs['attention_mask'],
-                    max_new_tokens=100,              # Increased for longer responses
-                    min_length=len(inputs['input_ids'][0]) + 30,  # Minimum response length
-                    temperature=0.8,                 # Slightly higher for creativity
+                    max_new_tokens=80,               # Reduced for cleaner responses
+                    min_length=len(inputs['input_ids'][0]) + 20,  # Minimum response length
+                    temperature=0.7,                 # Lower for more focused responses
                     do_sample=True,
-                    top_p=0.95,                     # Less restrictive
-                    top_k=50,                       # Add top-k sampling
+                    top_p=0.9,                      # More restrictive for quality
+                    top_k=40,                       # Reduced for better quality
                     pad_token_id=tokenizer.eos_token_id,
                     eos_token_id=tokenizer.eos_token_id,
-                    repetition_penalty=1.15,        # Reduce repetition
+                    repetition_penalty=1.2,         # Higher to reduce repetition
                     no_repeat_ngram_size=3,         # Prevent 3-gram repetition
-                    length_penalty=1.0,             # Encourage longer responses
-                    early_stopping=False            # Don't stop too early
+                    length_penalty=0.8,             # Slight penalty for length
+                    early_stopping=True             # Stop at natural endpoints
                 )
             
             # =============================================================================
@@ -214,30 +214,23 @@ def quick_test():
                 # Remove conversation markers and clean text
                 assistant_response = assistant_response.replace('### Human:', '').strip()
                 
-                # Better sentence processing
+                # Clean response processing
+                # Remove common artifacts
+                assistant_response = assistant_response.replace('---', '').replace('**', '')
+                assistant_response = assistant_response.replace(')', '').replace('(', '')
+                
+                # Split into sentences
                 sentences = []
-                current_sentence = ""
-                
-                for char in assistant_response:
-                    current_sentence += char
-                    if char in '.!?' and len(current_sentence.strip()) > 20:
-                        sentences.append(current_sentence.strip())
-                        current_sentence = ""
-                
-                # Add remaining text if substantial
-                if len(current_sentence.strip()) > 20:
-                    sentences.append(current_sentence.strip())
-                
-                # Filter quality sentences
-                clean_sentences = []
-                for sentence in sentences:
-                    if (len(sentence) > 25 and  # Higher minimum length
-                        not sentence.startswith('###') and  # No markers
-                        len(sentence) < 300 and  # Higher max length
-                        not sentence.count('*') > 3):  # Filter formatting artifacts
-                        clean_sentences.append(sentence)
-                        if len(clean_sentences) >= 3:  # Allow up to 3 sentences
+                for sent in assistant_response.split('.'):
+                    sent = sent.strip()
+                    if (len(sent) > 30 and  # Longer minimum
+                        not any(char in sent for char in ['#', '*', '-', '`']) and  # No artifacts
+                        sent.count(' ') > 5):  # Must have multiple words
+                        sentences.append(sent)
+                        if len(sentences) >= 2:  # Limit to 2 clean sentences
                             break
+                
+                clean_sentences = sentences
                 
                 # Format final response
                 if clean_sentences:

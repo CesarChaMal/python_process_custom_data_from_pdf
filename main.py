@@ -225,23 +225,26 @@ def prompt_engineered_api(text: str, provider: str = "ollama", model: str = None
     Returns:
         str: Generated Q&A in format "### Human: ... ### Assistant: ..."
     """
-    # Carefully crafted prompt for consistent Q&A generation
+    # Improved prompt for technical accuracy
     prompt = f"""
-    Based on the following technical content, create a high-quality question-answer pair that would be useful for training a troubleshooting assistant.
+    You are a JVM expert creating training data. Based on the technical content below, create ONE accurate question-answer pair.
 
     Content: {text}
 
-    Requirements:
-    1. Generate ONE clear, specific question that someone might ask about this topic
-    2. Provide a comprehensive, helpful answer
-    3. Use EXACTLY this format:
+    CRITICAL Requirements:
+    1. Question must be specific and realistic
+    2. Answer must be technically accurate - no made-up tools, parameters, or concepts
+    3. Use only real JVM tools (jstat, jmap, jconsole, VisualVM, etc.)
+    4. Use only real JVM parameters (-Xmx, -Xms, -XX:NewRatio, etc.)
+    5. Provide step-by-step solutions when possible
+    6. Use EXACTLY this format:
 
     ### Human:
-    [Your question here]
+    [Your specific question here]
     ### Assistant:
-    [Your detailed answer here]
+    [Your accurate, detailed answer here]
 
-    Focus on practical, actionable information that would help someone solve real problems.
+    Example of good answer: "Use jstat -gc [pid] to monitor garbage collection. Check heap usage with jmap -histo [pid]."
     """
     
     return call_ai(prompt, provider, model)
@@ -1381,10 +1384,40 @@ def main():
             print(f"  - Test examples: {len(dataset_dict['test'])}")
             
             # Quick quality check on existing dataset
-            good_format = sum(1 for i in range(len(dataset_dict['train'])) 
-                            if '### Human:' in dataset_dict['train'][i]['text'] and '### Assistant:' in dataset_dict['train'][i]['text'])
-            format_percentage = (good_format / len(dataset_dict['train'])) * 100
+            good_format = 0
+            quality_issues = []
+            total_examples = len(dataset_dict['train'])
+            
+            for i in range(total_examples):
+                text = dataset_dict['train'][i]['text']
+                if '### Human:' in text and '### Assistant:' in text:
+                    good_format += 1
+                    
+                    # Check for technical accuracy issues
+                    if 'urologist David Carr' in text:
+                        quality_issues.append(f"Sample {i}: Contains fake expert name")
+                    if 'tuned ForThreadExecutionPatterns' in text:
+                        quality_issues.append(f"Sample {i}: Contains fake JVM parameter")
+                    if 'AnalyzingGarbage collected Logs' in text:
+                        quality_issues.append(f"Sample {i}: Contains fake tool name")
+            
+            format_percentage = (good_format / total_examples) * 100
             print(f"[INFO] Dataset quality: {format_percentage:.1f}% proper Q&A format")
+            
+            if quality_issues:
+                print(f"[WARNING] Found {len(quality_issues)} technical accuracy issues in existing dataset")
+                print("[RECOMMENDATION] Set OVERWRITE_DATASET=true to regenerate with improved prompts")
+                
+                # Offer detailed inspection
+                import sys
+                if sys.stdin.isatty():
+                    try:
+                        inspect_choice = input("\nRun detailed dataset inspection? (y/n) [n]: ").strip().lower()
+                        if inspect_choice == 'y':
+                            from inspect_dataset import inspect_dataset
+                            inspect_dataset()
+                    except (EOFError, KeyboardInterrupt):
+                        pass
         except Exception as e:
             print(f"[ERROR] Failed to load existing dataset: {e}")
             print("[INFO] Will regenerate dataset...")
@@ -1455,18 +1488,40 @@ def main():
             dataset_dict.save_to_disk(dataset_path)
             print(f"[SUCCESS] Dataset saved to {dataset_path}")
             
-            # Dataset quality check
-            print("[INFO] Performing dataset quality check...")
+            # Enhanced dataset quality check
+            print("[INFO] Performing comprehensive dataset quality check...")
             good_format = 0
             total_examples = len(dataset_dict['train'])
+            quality_issues = []
             
             for i in range(total_examples):
                 text = dataset_dict['train'][i]['text']
                 if '### Human:' in text and '### Assistant:' in text:
                     good_format += 1
+                    
+                    # Check for technical accuracy issues
+                    if 'urologist David Carr' in text:
+                        quality_issues.append(f"Sample {i}: Contains fake expert name")
+                    if 'tuned ForThreadExecutionPatterns' in text:
+                        quality_issues.append(f"Sample {i}: Contains fake JVM parameter")
+                    if 'AnalyzingGarbage collected Logs' in text:
+                        quality_issues.append(f"Sample {i}: Contains fake tool name")
+                    if len(text) < 50:
+                        quality_issues.append(f"Sample {i}: Too short ({len(text)} chars)")
             
             format_percentage = (good_format / total_examples) * 100
             print(f"[INFO] Dataset quality: {good_format}/{total_examples} examples ({format_percentage:.1f}%) have proper Q&A format")
+            
+            # Report quality issues
+            if quality_issues:
+                print(f"[WARNING] Found {len(quality_issues)} technical accuracy issues:")
+                for issue in quality_issues[:5]:  # Show first 5
+                    print(f"  • {issue}")
+                if len(quality_issues) > 5:
+                    print(f"  • ... and {len(quality_issues) - 5} more issues")
+                print("[RECOMMENDATION] Consider regenerating dataset with improved prompts")
+            else:
+                print("[SUCCESS] No obvious technical accuracy issues detected")
             
             if format_percentage < 90:
                 print("[WARNING] Dataset quality is below 90% - this may affect training effectiveness")
