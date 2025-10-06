@@ -79,6 +79,27 @@ def upload_model_to_hf(model_dir, model_id, auth_token, base_model=None, finetun
         return False
 
 def main():
+    # Show usage if no args provided
+    if len(sys.argv) == 1:
+        print("🚀 Model Upload Utility")
+        print("=" * 40)
+        print("\n📋 Quick Usage:")
+        print("  python upload_model.py                    # Upload default model")
+        print("  python upload_model.py --model-id user/model-name")
+        print("\n💡 Examples:")
+        print("  # Upload with auto-detected settings")
+        print("  python upload_model.py")
+        print("\n  # Upload specific model")
+        print("  python upload_model.py --model-dir ./models/my_model --model-id myuser/my-model")
+        print("\n  # Upload with metadata")
+        print("  python upload_model.py --base-model microsoft/DialoGPT-medium --finetune-method full")
+        print("\n🔧 Setup:")
+        print("  1. Set HUGGING_FACE_HUB_TOKEN in .env file")
+        print("  2. Ensure model exists locally")
+        print("  3. Run upload command")
+        print("\n📖 Full help: python upload_model.py --help")
+        sys.exit(0)
+    
     parser = argparse.ArgumentParser(description="Upload model to Hugging Face Hub")
     parser.add_argument("--model-dir", default="./models/jvm_troubleshooting_model", help="Local model directory")
     parser.add_argument("--model-id", help="HF model ID (username/model-name)")
@@ -101,7 +122,9 @@ def main():
     auth_token = os.getenv('HUGGING_FACE_HUB_TOKEN')
     if not auth_token:
         print("[ERROR] HUGGING_FACE_HUB_TOKEN not found in environment")
-        print("Set it in .env file: HUGGING_FACE_HUB_TOKEN=hf_your_token_here")
+        print("💡 Setup:")
+        print("  1. Get token from: https://huggingface.co/settings/tokens")
+        print("  2. Add to .env: HUGGING_FACE_HUB_TOKEN=hf_your_token_here")
         return 1
     
     # Validate HF connection

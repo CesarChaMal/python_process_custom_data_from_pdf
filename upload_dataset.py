@@ -140,6 +140,27 @@ def upload_dataset_to_hf(dataset_path: str, dataset_name: str, auth_token: str, 
 
 def main():
     """CLI interface for standalone dataset upload."""
+    
+    # Show usage if no args provided
+    if len(sys.argv) == 1:
+        print("🚀 Dataset Upload Utility")
+        print("=" * 40)
+        print("\n📋 Quick Usage:")
+        print("  python upload_dataset.py -d ./dataset/jvm_troubleshooting_guide -n jvm_troubleshooting_guide")
+        print("\n💡 Examples:")
+        print("  # Upload with auto-detected username")
+        print("  python upload_dataset.py --dataset ./dataset/my_data --name my_dataset")
+        print("\n  # Upload with specific username")
+        print("  python upload_dataset.py -d ./dataset/my_data -n my_dataset -u myuser")
+        print("\n  # Use custom token")
+        print("  python upload_dataset.py -d ./dataset/my_data -n my_dataset -t hf_token")
+        print("\n🔧 Setup:")
+        print("  1. Set HUGGING_FACE_HUB_TOKEN in .env file")
+        print("  2. Ensure dataset exists locally")
+        print("  3. Run upload command")
+        print("\n📖 Full help: python upload_dataset.py --help")
+        sys.exit(0)
+    
     parser = argparse.ArgumentParser(
         description="Upload dataset to Hugging Face Hub",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -174,11 +195,17 @@ Examples:
     
     args = parser.parse_args()
     
+    print("🚀 Dataset Upload Utility")
+    print("=" * 40)
+    
     # Get token from args or environment
     auth_token = args.token or os.getenv('HUGGING_FACE_HUB_TOKEN')
     if not auth_token:
         print("[ERROR] Hugging Face token required!")
-        print("Provide via --token argument or HUGGING_FACE_HUB_TOKEN environment variable")
+        print("💡 Setup:")
+        print("  1. Get token from: https://huggingface.co/settings/tokens")
+        print("  2. Add to .env: HUGGING_FACE_HUB_TOKEN=hf_your_token_here")
+        print("  3. Or use: --token hf_your_token_here")
         sys.exit(1)
     
     # Upload dataset
