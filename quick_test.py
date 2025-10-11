@@ -177,23 +177,23 @@ def quick_test():
             
             # Model is on CPU, inputs already on CPU
             
-            # Generate response with improved parameters
+            # Generate response with optimized parameters for technical content
             with torch.no_grad():
                 outputs = model.generate(
                     input_ids=inputs['input_ids'],
                     attention_mask=inputs['attention_mask'],
-                    max_new_tokens=80,               # Reduced for cleaner responses
-                    min_length=len(inputs['input_ids'][0]) + 20,  # Minimum response length
-                    temperature=0.7,                 # Lower for more focused responses
+                    max_new_tokens=120,              # Increased for comprehensive answers
+                    min_length=len(inputs['input_ids'][0]) + 40,  # Ensure substantial responses
+                    temperature=0.6,                 # Lower for more focused technical responses
                     do_sample=True,
-                    top_p=0.9,                      # More restrictive for quality
-                    top_k=40,                       # Reduced for better quality
+                    top_p=0.85,                     # More focused nucleus sampling
+                    top_k=35,                       # More selective for quality
                     pad_token_id=tokenizer.eos_token_id,
                     eos_token_id=tokenizer.eos_token_id,
-                    repetition_penalty=1.2,         # Higher to reduce repetition
+                    repetition_penalty=1.15,        # Balanced repetition control
                     no_repeat_ngram_size=3,         # Prevent 3-gram repetition
-                    length_penalty=0.8,             # Slight penalty for length
-                    early_stopping=True             # Stop at natural endpoints
+                    length_penalty=1.0,             # Neutral length preference
+                    early_stopping=False            # Let model complete technical explanations
                 )
             
             # =============================================================================
@@ -219,28 +219,37 @@ def quick_test():
                 assistant_response = assistant_response.replace('---', '').replace('**', '')
                 assistant_response = assistant_response.replace(')', '').replace('(', '')
                 
-                # Split into sentences
-                sentences = []
-                for sent in assistant_response.split('.'):
-                    sent = sent.strip()
-                    if (len(sent) > 30 and  # Longer minimum
-                        not any(char in sent for char in ['#', '*', '-', '`']) and  # No artifacts
-                        sent.count(' ') > 5):  # Must have multiple words
-                        sentences.append(sent)
-                        if len(sentences) >= 2:  # Limit to 2 clean sentences
-                            break
+                # Enhanced response cleaning for technical content
+                # Remove artifacts and format properly
+                clean_response = assistant_response
                 
-                clean_sentences = sentences
+                # Remove common artifacts
+                artifacts = ['###', '**', '---', '```', '`', '\n\n', '\t']
+                for artifact in artifacts:
+                    clean_response = clean_response.replace(artifact, ' ')
                 
-                # Format final response
-                if clean_sentences:
-                    clean_response = ' '.join(clean_sentences)  # Use space instead of '. '
+                # Clean up spacing
+                clean_response = ' '.join(clean_response.split())
+                
+                # Ensure response ends properly
+                if clean_response and not clean_response.endswith(('.', '!', '?')):
+                    # Find last complete sentence
+                    last_period = clean_response.rfind('.')
+                    if last_period > len(clean_response) * 0.7:  # If period is in last 30%
+                        clean_response = clean_response[:last_period + 1]
+                    else:
+                        clean_response += '.'
+                
+                # Validate response quality
+                if (len(clean_response) >= 50 and  # Minimum length
+                    clean_response.count(' ') >= 8 and  # Multiple words
+                    not clean_response.startswith(('Error', 'Failed', 'Cannot'))):  # Not error message
                     
                     print(f"   ✅ Answer: {clean_response}")
                     successful_tests += 1
                     total_response_length += len(clean_response)
                 else:
-                    print("   ⚠️  Answer: [Generated response was too short or unclear]")
+                    print(f"   ⚠️  Answer: {clean_response[:100]}... [Response quality needs improvement]")
             else:
                 print("   ❌ Answer: [No response generated]")
                 
@@ -269,15 +278,23 @@ def quick_test():
     print(f"✅ Successful responses: {successful_tests}/{len(test_questions)} ({success_rate:.1f}%)")
     print(f"📏 Average response length: {avg_response_length:.0f} characters")
     
-    # Provide quality assessment
-    if success_rate >= 80:
+    # Enhanced quality assessment with response length consideration
+    if success_rate >= 80 and avg_response_length >= 100:
         print("🎉 Model performance: EXCELLENT - Ready for production use")
+    elif success_rate >= 80 and avg_response_length >= 50:
+        print("👍 Model performance: GOOD - Responses could be more detailed")
     elif success_rate >= 60:
         print("👍 Model performance: GOOD - Minor improvements recommended")
     elif success_rate >= 40:
         print("⚠️  Model performance: FAIR - Consider additional training")
     else:
         print("❌ Model performance: POOR - Retraining strongly recommended")
+    
+    # Additional quality indicators
+    if avg_response_length < 50:
+        print("📏 Note: Responses are quite short - consider training for more detailed answers")
+    elif avg_response_length > 200:
+        print("📏 Note: Good response length for technical explanations")
     
     print("\n🔧 Next Steps:")
     if success_rate < 80:

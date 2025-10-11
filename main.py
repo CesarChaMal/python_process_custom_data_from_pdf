@@ -225,29 +225,73 @@ def prompt_engineered_api(text: str, provider: str = "ollama", model: str = None
     Returns:
         str: Generated Q&A in format "### Human: ... ### Assistant: ..."
     """
-    # Improved prompt for technical accuracy
+    # Enhanced prompt for high-quality technical training data
     prompt = f"""
-    You are a JVM expert creating training data. Based on the technical content below, create ONE accurate question-answer pair.
+    You are a senior JVM performance engineer creating high-quality training data. Based on the technical content below, create ONE comprehensive question-answer pair.
 
     Content: {text}
 
-    CRITICAL Requirements:
-    1. Question must be specific and realistic
-    2. Answer must be technically accurate - no made-up tools, parameters, or concepts
-    3. Use only real JVM tools (jstat, jmap, jconsole, VisualVM, etc.)
-    4. Use only real JVM parameters (-Xmx, -Xms, -XX:NewRatio, etc.)
-    5. Provide step-by-step solutions when possible
-    6. Use EXACTLY this format:
+    STRICT Requirements:
+    1. Question must be specific, realistic, and commonly asked by developers
+    2. Answer must be technically accurate with NO fabricated information
+    3. Use ONLY real JVM tools: jstat, jmap, jconsole, VisualVM, JProfiler, Eclipse MAT, GCViewer
+    4. Use ONLY real JVM parameters: -Xmx, -Xms, -XX:NewRatio, -XX:MaxMetaspaceSize, -XX:+UseG1GC, etc.
+    5. Provide complete, actionable solutions with specific commands
+    6. Answer must be 150-300 characters for comprehensive coverage
+    7. Include practical examples with realistic values
+    8. Use EXACTLY this format:
 
     ### Human:
-    [Your specific question here]
+    [Specific, realistic question]
     ### Assistant:
-    [Your accurate, detailed answer here]
+    [Complete, accurate answer with examples and commands]
 
-    Example of good answer: "Use jstat -gc [pid] to monitor garbage collection. Check heap usage with jmap -histo [pid]."
+    GOOD Example:
+    ### Human:
+    How do I identify memory leaks in a Java application?
+    ### Assistant:
+    To identify memory leaks: 1) Use jmap -histo <pid> to see object counts over time, 2) Generate heap dumps with jmap -dump:format=b,file=heap.hprof <pid>, 3) Analyze with Eclipse MAT or VisualVM to find objects not being garbage collected, 4) Look for growing collections or static references, 5) Monitor with -XX:+PrintGCDetails to see if heap usage keeps increasing after GC.
+
+    BAD Examples to AVOID:
+    - Fake tools: "AnalyzingGarbage collected Logs", "JVMProfiler Pro"
+    - Fake parameters: "tuned ForThreadExecutionPatterns", "-XX:CustomMemoryTuning"
+    - Fake experts: "urologist David Carr", "Dr. Smith recommends"
+    - Incomplete answers: "Use jstat to check" (too short)
     """
     
-    return call_ai(prompt, provider, model)
+    response = call_ai(prompt, provider, model)
+    
+    # Enhanced response validation
+    if response and "### Human:" in response and "### Assistant:" in response:
+        assistant_part = response.split("### Assistant:")[-1].strip()
+        
+        # Quality checks
+        quality_issues = []
+        if len(assistant_part) < 100:
+            quality_issues.append("too short")
+        if "urologist David Carr" in response or "Dr. Smith" in response:
+            quality_issues.append("fake expert names")
+        if "tuned ForThreadExecutionPatterns" in response or "AnalyzingGarbage collected Logs" in response:
+            quality_issues.append("fake tools/parameters")
+        if not any(tool in response.lower() for tool in ['jstat', 'jmap', 'jconsole', 'visualvm', 'gc', 'heap', 'memory']):
+            quality_issues.append("missing JVM tools/concepts")
+        
+        # Retry if quality issues found
+        if quality_issues:
+            logging.warning(f"Quality issues detected: {', '.join(quality_issues)}. Retrying...")
+            retry_prompt = prompt + f"\n\nIMPORTANT: Avoid these issues: {', '.join(quality_issues)}. Provide a detailed, accurate answer with real JVM tools and at least 150 characters."
+            response = call_ai(retry_prompt, provider, model)
+            
+            # Final validation
+            if response and "### Assistant:" in response:
+                final_assistant = response.split("### Assistant:")[-1].strip()
+                if len(final_assistant) >= 100:
+                    logging.info("Retry successful - quality improved")
+                else:
+                    logging.warning("Retry still produced short answer")
+    
+    return response
+
 
 # =============================================================================
 # MODEL TRAINING AND FINE-TUNING FUNCTIONS
@@ -472,17 +516,28 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
         device_config = get_optimal_device_config()
         print(f"[INFO] Using {device_config['device_type'].upper()} optimized configuration")
         
-        # Load model with safe configuration to prevent segfaults
-        model = AutoModelForCausalLM.from_pretrained(
-            base_model,
-            torch_dtype=torch.float32,  # Use FP32 for stability
-            low_cpu_mem_usage=True,
-            device_map=None  # Load on CPU first, then move to GPU
-        )
-        
-        # Move to GPU after loading if available
-        if torch.cuda.is_available():
-            model = model.cuda()
+        # Load model with enhanced stability for large models
+        if "large" in base_model.lower():
+            # Special handling for DialoGPT-large to prevent segfaults
+            os.makedirs("./offload", exist_ok=True)
+            model = AutoModelForCausalLM.from_pretrained(
+                base_model,
+                torch_dtype=torch.float32,
+                low_cpu_mem_usage=True,
+                device_map="auto",
+                max_memory={0: "10GB"} if torch.cuda.is_available() else None,
+                offload_folder="./offload" if torch.cuda.is_available() else None
+            )
+        else:
+            # Standard loading for smaller models
+            model = AutoModelForCausalLM.from_pretrained(
+                base_model,
+                torch_dtype=torch.float32,
+                low_cpu_mem_usage=True,
+                device_map=None
+            )
+            if torch.cuda.is_available():
+                model = model.cuda()
         
         print(f"[SUCCESS] Loaded model with {model.num_parameters():,} parameters")
         
@@ -781,19 +836,19 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
             **base_training_config
         )
     else:
-        # Full fine-tuning with ultra-aggressive parameters for JVM knowledge learning
+        # Optimized full fine-tuning for better response quality
         if device_config['device_type'] == 'gpu':
-            # GPU training - ultra-aggressive to override DialoGPT conversational bias
+            # GPU training - balanced approach for quality responses
             training_args = TrainingArguments(
-                num_train_epochs=8,  # Much more epochs for deeper learning
-                learning_rate=5e-5,  # Very aggressive learning rate
-                warmup_steps=10,     # Shorter warmup for faster aggressive learning
+                num_train_epochs=6,  # Sufficient epochs for learning without overfitting
+                learning_rate=2e-5,  # Conservative learning rate for stability
+                warmup_steps=20,     # Proper warmup for stable training
                 logging_steps=5,
                 save_steps=25,
                 eval_strategy="no",
                 save_total_limit=1,
-                max_grad_norm=2.0,   # Higher gradient norm for stronger updates
-                weight_decay=0.001,  # Reduced weight decay for stronger learning
+                max_grad_norm=1.0,   # Standard gradient clipping
+                weight_decay=0.01,   # Proper regularization
                 **base_training_config
             )
         else:
@@ -1269,64 +1324,103 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                 print("[INFO] Run interactively for more options: python main.py")
                 return
     
-    # Save final model with validation and fallback
+    # Save final model with enhanced stability for large models
     print("[INFO] Saving trained model...")
     
-    # Final validation before saving
-    if validate_model_weights(model, "pre-save"):
-        trainer.save_model()
-        tokenizer.save_pretrained(model_dir)
+    try:
+        # Clear GPU memory before saving to prevent segfaults
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            import gc
+            gc.collect()
         
-        # Save training metrics
-        if hasattr(trainer.state, 'log_history'):
-            import json
-            with open(f"{model_dir}/training_log.json", "w") as f:
-                json.dump(trainer.state.log_history, f, indent=2)
-        
-        print(f"[SUCCESS] Model saved to {model_dir}")
-    else:
-        print("[ERROR] Training produced corrupted model!")
-        print("[INFO] Saving clean base model instead...")
-        
-        # Save clean base model as fallback
-        clean_model = AutoModelForCausalLM.from_pretrained(base_model)
-        clean_tokenizer = AutoTokenizer.from_pretrained(base_model)
-        if clean_tokenizer.pad_token is None:
-            clean_tokenizer.pad_token = clean_tokenizer.eos_token
-        
-        clean_model.save_pretrained(model_dir)
-        clean_tokenizer.save_pretrained(model_dir)
-        print(f"[INFO] Clean base model saved to {model_dir}")
-        print("[WARNING] Model needs retraining with more stable parameters")
+        # Final validation before saving
+        if validate_model_weights(model, "pre-save"):
+            # Save with error handling for large models
+            try:
+                trainer.save_model()
+                tokenizer.save_pretrained(model_dir)
+                
+                # Save training metrics
+                if hasattr(trainer.state, 'log_history'):
+                    import json
+                    with open(f"{model_dir}/training_log.json", "w") as f:
+                        json.dump(trainer.state.log_history, f, indent=2)
+                
+                print(f"[SUCCESS] Model saved to {model_dir}")
+                
+            except Exception as save_error:
+                print(f"[ERROR] Model saving failed: {save_error}")
+                print("[INFO] Attempting alternative save method...")
+                
+                # Alternative save method for large models
+                model.save_pretrained(model_dir, safe_serialization=True)
+                tokenizer.save_pretrained(model_dir)
+                print(f"[SUCCESS] Model saved with alternative method to {model_dir}")
+                
+        else:
+            print("[ERROR] Training produced corrupted model!")
+            print("[INFO] Saving clean base model instead...")
+            
+            # Save clean base model as fallback
+            clean_model = AutoModelForCausalLM.from_pretrained(base_model)
+            clean_tokenizer = AutoTokenizer.from_pretrained(base_model)
+            if clean_tokenizer.pad_token is None:
+                clean_tokenizer.pad_token = clean_tokenizer.eos_token
+            
+            clean_model.save_pretrained(model_dir)
+            clean_tokenizer.save_pretrained(model_dir)
+            print(f"[INFO] Clean base model saved to {model_dir}")
+            print("[WARNING] Model needs retraining with more stable parameters")
+            
+    except Exception as critical_error:
+        print(f"[CRITICAL] Model saving completely failed: {critical_error}")
+        print("[INFO] This may be due to memory issues with large models")
+        return
 
 
     # =============================================================================
     # MODEL UPLOAD TO HUGGING FACE HUB
     # =============================================================================
     
+    # Clear model from memory before upload to prevent segfaults
+    print("[INFO] Clearing model from memory before upload...")
+    del model
+    del trainer
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
+    import gc
+    gc.collect()
+    
     if auth_token:
-        upload_model_to_hf(
-            model_dir=model_dir,
-            model_id=model_id,
-            auth_token=auth_token,
-            base_model=base_model,
-            finetune_method=finetune_method,
-            train_size=len(dataset_dict['train']),
-            test_size=len(dataset_dict['test'])
-        )
+        print("[INFO] Uploading model to Hugging Face Hub...")
+        try:
+            upload_model_to_hf(
+                model_dir=model_dir,
+                model_id=model_id,
+                auth_token=auth_token
+            )
+            print(f"[SUCCESS] Model uploaded to https://huggingface.co/{model_id}")
+        except Exception as upload_error:
+            print(f"[ERROR] Model upload failed: {upload_error}")
+            print(f"[INFO] Manual upload: python upload_model.py --model-dir {model_dir} --model-id {model_id}")
     else:
         print("[INFO] No Hugging Face token provided - model saved locally only")
         
         # Generate local model card
         print("[INFO] Generating local model card...")
-        generate_and_upload_model_card(
-            model_id="local/jvm_troubleshooting_model",
-            auth_token=None,
-            base_model=base_model,
-            finetune_method=finetune_method,
-            train_size=len(dataset_dict['train']),
-            test_size=len(dataset_dict['test'])
-        )
+        try:
+            generate_and_upload_model_card(
+                model_id="local/jvm_troubleshooting_model",
+                auth_token=None,
+                base_model=base_model,
+                finetune_method=finetune_method,
+                train_size=len(dataset_dict['train']),
+                test_size=len(dataset_dict['test'])
+            )
+        except Exception as card_error:
+            print(f"[WARNING] Model card generation failed: {card_error}")
 
 # =============================================================================
 # MAIN PROCESSING PIPELINE
@@ -1488,50 +1582,96 @@ def main():
             dataset_dict.save_to_disk(dataset_path)
             print(f"[SUCCESS] Dataset saved to {dataset_path}")
             
-            # Enhanced dataset quality check
-            print("[INFO] Performing comprehensive dataset quality check...")
+            # Comprehensive dataset quality inspection
+            print("[INFO] Performing comprehensive dataset quality inspection...")
             good_format = 0
             total_examples = len(dataset_dict['train'])
             quality_issues = []
+            length_stats = []
             
             for i in range(total_examples):
                 text = dataset_dict['train'][i]['text']
                 if '### Human:' in text and '### Assistant:' in text:
                     good_format += 1
+                    assistant_part = text.split('### Assistant:')[-1].strip()
+                    length_stats.append(len(assistant_part))
                     
-                    # Check for technical accuracy issues
-                    if 'urologist David Carr' in text:
+                    # Enhanced technical accuracy checks
+                    if any(fake in text for fake in ['urologist David Carr', 'Dr. Smith', 'Professor Johnson']):
                         quality_issues.append(f"Sample {i}: Contains fake expert name")
-                    if 'tuned ForThreadExecutionPatterns' in text:
-                        quality_issues.append(f"Sample {i}: Contains fake JVM parameter")
-                    if 'AnalyzingGarbage collected Logs' in text:
-                        quality_issues.append(f"Sample {i}: Contains fake tool name")
-                    if len(text) < 50:
-                        quality_issues.append(f"Sample {i}: Too short ({len(text)} chars)")
+                    if any(fake in text for fake in ['tuned ForThreadExecutionPatterns', 'AnalyzingGarbage collected Logs', 'JVMProfiler Pro']):
+                        quality_issues.append(f"Sample {i}: Contains fake tool/parameter")
+                    if len(assistant_part) < 100:
+                        quality_issues.append(f"Sample {i}: Answer too short ({len(assistant_part)} chars)")
+                    if not any(tool in text.lower() for tool in ['jstat', 'jmap', 'jconsole', 'visualvm', 'gc', 'heap', 'memory', 'jvm']):
+                        quality_issues.append(f"Sample {i}: Missing JVM technical content")
+                    if text.count('### Human:') > 1 or text.count('### Assistant:') > 1:
+                        quality_issues.append(f"Sample {i}: Multiple Q&A pairs in single sample")
             
             format_percentage = (good_format / total_examples) * 100
-            print(f"[INFO] Dataset quality: {good_format}/{total_examples} examples ({format_percentage:.1f}%) have proper Q&A format")
+            avg_length = sum(length_stats) / len(length_stats) if length_stats else 0
             
-            # Report quality issues
+            print(f"[INFO] Dataset Quality Report:")
+            print(f"  • Format: {good_format}/{total_examples} examples ({format_percentage:.1f}%) proper Q&A format")
+            print(f"  • Length: Average answer length {avg_length:.0f} characters")
+            print(f"  • Issues: {len(quality_issues)} quality issues detected")
+            
+            # Detailed quality report
             if quality_issues:
-                print(f"[WARNING] Found {len(quality_issues)} technical accuracy issues:")
-                for issue in quality_issues[:5]:  # Show first 5
-                    print(f"  • {issue}")
-                if len(quality_issues) > 5:
-                    print(f"  • ... and {len(quality_issues) - 5} more issues")
-                print("[RECOMMENDATION] Consider regenerating dataset with improved prompts")
+                print(f"\n[WARNING] Quality Issues Found:")
+                issue_types = {}
+                for issue in quality_issues:
+                    issue_type = issue.split(':')[1].strip()
+                    issue_types[issue_type] = issue_types.get(issue_type, 0) + 1
+                
+                for issue_type, count in issue_types.items():
+                    print(f"  • {issue_type}: {count} samples")
+                
+                if len(quality_issues) > 10:
+                    print(f"\n[INFO] First 10 specific issues:")
+                    for issue in quality_issues[:10]:
+                        print(f"    - {issue}")
+                    print(f"    ... and {len(quality_issues) - 10} more")
+                else:
+                    print(f"\n[INFO] Specific issues:")
+                    for issue in quality_issues:
+                        print(f"    - {issue}")
             else:
-                print("[SUCCESS] No obvious technical accuracy issues detected")
+                print("[SUCCESS] No technical accuracy issues detected")
             
-            if format_percentage < 90:
-                print("[WARNING] Dataset quality is below 90% - this may affect training effectiveness")
+            # Quality assessment
+            if format_percentage >= 95 and avg_length >= 150 and len(quality_issues) == 0:
+                print("[SUCCESS] ✅ EXCELLENT dataset quality - Ready for high-quality training")
+            elif format_percentage >= 90 and avg_length >= 100 and len(quality_issues) <= 5:
+                print("[SUCCESS] ✅ GOOD dataset quality - Suitable for training")
+            elif format_percentage >= 80:
+                print("[WARNING] ⚠️ MODERATE dataset quality - Training may produce mixed results")
             else:
-                print("[SUCCESS] Dataset quality is good for training")
+                print("[ERROR] ❌ POOR dataset quality - Recommend regenerating dataset")
+                
+            # Interactive inspection option
+            import sys
+            if sys.stdin.isatty() and quality_issues:
+                try:
+                    inspect_choice = input("\nRun detailed dataset inspection tool? (y/n) [n]: ").strip().lower()
+                    if inspect_choice == 'y':
+                        print("[INFO] Running detailed inspection...")
+                        import subprocess
+                        subprocess.run(["python", "inspect_dataset.py"])
+                except (EOFError, KeyboardInterrupt):
+                    pass
             
             # Show sample to verify content quality
             if total_examples > 0:
                 sample_text = dataset_dict['train'][0]['text']
-                print(f"[INFO] Sample Q&A preview: {sample_text[:200]}...")
+                print(f"\n[INFO] Sample Q&A Preview:")
+                print(f"{'='*60}")
+                if len(sample_text) > 400:
+                    print(f"{sample_text[:400]}...")
+                else:
+                    print(sample_text)
+                print(f"{'='*60}")
+                print(f"Sample length: {len(sample_text)} characters")
             
         except Exception as e:
             print(f"[ERROR] Failed to create dataset: {e}")
@@ -1617,7 +1757,7 @@ def main():
                 elif choice == '3':
                     print("⏭️ Skipping testing")
                 else:
-                    print("Invalid choice, skipping testing")
+                    print("⏭️ Skipping testing")
             except (EOFError, KeyboardInterrupt):
                 print("\n⏭️ Skipping testing")
         else:

@@ -344,24 +344,24 @@ def generate_response_with_memory(model, tokenizer, question, conversation_histo
         # RESPONSE GENERATION
         # =============================================================================
         
-        # Generate response with optimized parameters
+        # Generate response with enhanced parameters for technical content
         with torch.no_grad():
             outputs = model.generate(
                 input_ids=inputs['input_ids'],
                 attention_mask=inputs['attention_mask'],
-                max_new_tokens=120,              # Balanced response length
-                min_length=len(inputs['input_ids'][0]) + 25,  # Minimum response length
+                max_new_tokens=150,              # Increased for comprehensive technical answers
+                min_length=len(inputs['input_ids'][0]) + 40,  # Ensure substantial responses
                 num_return_sequences=1,
-                temperature=0.8,                 # Balanced creativity
+                temperature=0.65,                # Lower for more focused technical responses
                 do_sample=True,                  # Enable sampling for variety
-                top_p=0.95,                     # Less restrictive nucleus sampling
-                top_k=50,                       # Add top-k sampling
+                top_p=0.85,                     # More focused nucleus sampling
+                top_k=40,                       # More selective for quality
                 pad_token_id=tokenizer.eos_token_id,
                 eos_token_id=tokenizer.eos_token_id,
-                repetition_penalty=1.15,        # Reduce repetition
+                repetition_penalty=1.15,        # Balanced repetition control
                 no_repeat_ngram_size=3,         # Avoid 3-gram repetition
-                length_penalty=1.0,             # Encourage longer responses
-                early_stopping=False            # Don't stop too early
+                length_penalty=1.05,            # Slight preference for longer responses
+                early_stopping=False            # Let model complete technical explanations
             )
         
         # =============================================================================
