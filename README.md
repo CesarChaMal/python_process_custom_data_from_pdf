@@ -158,6 +158,9 @@ AI_PROVIDER=ollama
 AI_MODEL=cesarchamal/qa-expert  # optional
 OVERWRITE_DATASET=false  # true to overwrite without prompt
 HUGGING_FACE_HUB_TOKEN=your_hf_token_here
+# Optional: Pre-configure dataset size and epochs
+MAX_EXAMPLES=200  # Skip interactive selection
+NUM_EPOCHS=8     # Skip interactive selection
 ```
 
 ### Using OpenAI
@@ -167,6 +170,9 @@ AI_MODEL=gpt-4o-mini  # optional: gpt-4o-mini, gpt-3.5-turbo, gpt-4
 OVERWRITE_DATASET=false  # true to overwrite without prompt
 OPENAI_API_KEY=your_openai_key_here
 HUGGING_FACE_HUB_TOKEN=your_hf_token_here
+# Optional: Pre-configure dataset size and epochs
+MAX_EXAMPLES=500  # Skip interactive selection
+NUM_EPOCHS=10    # Skip interactive selection
 ```
 
 ## Usage Examples
@@ -229,13 +235,36 @@ echo "OVERWRITE_DATASET=true" >> .env
 
 ### Example 6: Development Workflow
 ```bash
-# Initial setup
+# Initial setup with interactive configuration
 ./run.sh
 
-# Quick iterations (reuse environment)
+# Quick iterations (reuse environment, skip menus with .env)
 ./run.sh --noclean --noinstall
 
 # Clean restart when needed
+./run.sh
+```
+
+### Example 7: Non-Interactive Mode
+```bash
+# Pre-configure in .env to skip interactive menus
+echo "MAX_EXAMPLES=200" >> .env
+echo "NUM_EPOCHS=8" >> .env
+echo "BASE_MODEL=microsoft/DialoGPT-medium" >> .env
+
+# Run without prompts
+./run.sh --noclean --noinstall
+```
+
+### Example 8: Quality-Focused Training
+```bash
+# Configure for maximum quality
+echo "MAX_EXAMPLES=500" >> .env
+echo "NUM_EPOCHS=10" >> .env
+echo "BASE_MODEL=microsoft/DialoGPT-large" >> .env
+echo "FINETUNE_METHOD=full" >> .env
+
+# Run premium training
 ./run.sh
 ```
 
@@ -251,17 +280,43 @@ python quick_test.py
 python model_utils.py recover
 ```
 
-## Available Base Models
+## Interactive Configuration
 
-| Model | Size | Speed | Quality | Use Case | Default |
-|-------|------|-------|---------|----------|----------|
-| `microsoft/DialoGPT-small` | 117M | Fast | Good | Quick prototyping | |
-| `microsoft/DialoGPT-medium` | 345M | Medium | Better | Balanced performance | ✅ |
-| `microsoft/DialoGPT-large` | 762M | Slow | Best | Production quality | |
-| `distilgpt2` | 82M | Very Fast | Basic | Lightweight deployment | |
-| `gpt2` | 124M | Fast | Standard | General purpose | |
+The system now provides intelligent, interactive configuration menus:
 
-**Note**: DialoGPT-medium is now the default for better response quality.
+### 📊 Dataset Size Selection
+Choose optimal dataset size based on your model:
+
+| Option | Examples | Generation Time | Best For | Quality |
+|--------|----------|----------------|----------|----------|
+| Quick | 50 | 5-10 min | Testing/Prototyping | Basic |
+| Standard | 100 | 15-30 min | Most Use Cases | Good |
+| Quality | 200 | 30-60 min | Production Ready | Better |
+| Premium | 500 | 1-2 hours | Best Results | Excellent |
+| Maximum | 800 | 2-3 hours | Research/Production | Superior |
+| Custom | 10-1000 | Variable | Specific Needs | Variable |
+
+### 🔄 Epoch Selection
+Optimal training epochs based on model and dataset size:
+
+| Option | Epochs | Training Time | Overfitting Risk | Best For |
+|--------|--------|---------------|------------------|----------|
+| Quick | 3 | 30-60 min | Low | Fast Testing |
+| Standard | 6 | 1-2 hours | Low | Most Cases |
+| Quality | 8 | 2-3 hours | Medium | Balanced |
+| Thorough | 10 | 3-4 hours | Medium | Large Datasets |
+| Intensive | 12 | 4-5 hours | High | Maximum Learning |
+| Custom | 1-20 | Variable | Variable | Specific Needs |
+
+### 🎯 Model-Specific Recommendations
+
+| Model | Parameters | Recommended Dataset | Recommended Epochs | Memory Req |
+|-------|------------|-------------------|-------------------|------------|
+| `DialoGPT-small` | 117M | 50-200 examples | 6-8 epochs | 2-4GB VRAM |
+| `DialoGPT-medium` | 345M | 100-400 examples | 8-10 epochs | 4-6GB VRAM |
+| `DialoGPT-large` | 774M | 300-800 examples | 6-12 epochs | 8-12GB VRAM |
+
+**Smart Recommendations**: The system analyzes your hardware, model choice, and dataset size to provide optimal suggestions with overfitting risk assessment.
 
 ## Usage Steps
 
@@ -318,6 +373,39 @@ The testing scripts include these JVM troubleshooting questions:
 9. What tools can I use for JVM profiling?
 10. How do I handle StackOverflowError?
 11. What are the differences between heap and non-heap memory?
+
+## Configuration Best Practices
+
+### 📊 Dataset Size Guidelines
+
+**For DialoGPT-small (117M params):**
+- **Optimal**: 50-100 examples
+- **Maximum**: 200 examples (overfitting risk beyond)
+- **Training time**: 30-90 minutes
+
+**For DialoGPT-medium (345M params):**
+- **Optimal**: 100-300 examples
+- **Sweet spot**: 200 examples
+- **Training time**: 1-3 hours
+
+**For DialoGPT-large (774M params):**
+- **Minimum**: 300 examples
+- **Optimal**: 500+ examples
+- **Training time**: 2-5 hours
+
+### 🔄 Epoch Selection Guidelines
+
+**Small Datasets (<100 examples):**
+- Use 3-6 epochs to prevent overfitting
+- Monitor for early convergence
+
+**Medium Datasets (100-300 examples):**
+- Use 6-8 epochs for balanced learning
+- Standard recommendation for most cases
+
+**Large Datasets (300+ examples):**
+- Use 8-12 epochs for deep learning
+- Can handle more training without overfitting
 
 ## Troubleshooting
 
@@ -395,7 +483,27 @@ python model_utils.py download  # Download from Hugging Face
 python model_utils.py test      # Test if model loads correctly
 ```
 
-### GPU Cleanup Utility
+### 📊 Dataset Quality Analysis
+
+The system provides comprehensive quality assessment:
+
+```bash
+# Automatic quality analysis during generation
+[INFO] Dataset Quality Report:
+  • Format: 95/100 examples (95.0%) proper Q&A format
+  • Length: Average answer length 247 characters
+  • Issues: 2 quality issues detected
+  • Technical: Real JVM tools and parameters verified
+```
+
+**Quality Metrics:**
+- **Format Validation**: Proper "### Human:/### Assistant:" structure
+- **Technical Accuracy**: Real JVM tools (jstat, jmap, VisualVM) only
+- **Response Length**: 150-300 characters for comprehensive coverage
+- **Content Relevance**: JVM/Java concepts verification
+- **Duplicate Detection**: Prevents repetitive examples
+
+### 🔧 GPU Cleanup Utility
 
 For advanced GPU memory management:
 
@@ -415,21 +523,36 @@ python gpu_cleanup.py
 
 ## Advanced Features
 
-### Intelligent Training Management
+### 🤖 Intelligent Configuration System
+- **Interactive Dataset Sizing**: Model-aware recommendations (50-800 examples)
+- **Smart Epoch Selection**: Overfitting risk analysis and time estimation
+- **Hardware-Aware Suggestions**: GPU/CPU specific optimizations
+- **Quality vs Speed Trade-offs**: Clear guidance on training choices
+- **Non-Interactive Mode**: Pre-configure via .env for automation
+
+### 📊 Enhanced Dataset Quality
+- **Technical Accuracy Validation**: Detects and fixes fake JVM tools/parameters
+- **Response Length Optimization**: Ensures comprehensive 150-300 character answers
+- **Duplicate Detection**: Prevents repetitive training examples
+- **Real-time Quality Retry**: Automatically improves poor responses
+- **JVM-Specific Cleaning**: Fixes common technical syntax issues
+
+### 🎯 Intelligent Training Management
 - **AI-Powered Error Analysis**: Automatic hardware analysis and failure pattern recognition
 - **Smart Recommendations**: Context-aware suggestions based on your specific setup
 - **Unlimited Retry System**: Keep trying different strategies until success
 - **Dynamic Memory Management**: Automatic model size and batch size optimization
 - **Fallback Strategies**: CPU training, model changes, and testing options
 
-### Model Quality Improvements
-- **Better Default Model**: DialoGPT-medium (345M parameters) instead of small (117M)
-- **Improved Training**: Lower learning rate, gradient clipping, more epochs
+### 🚀 Model Quality Improvements
+- **Optimized Learning Rates**: Model-size specific rates (1e-5 to 5e-5)
+- **Enhanced Training Stability**: Conservative gradient clipping (0.3-0.5)
+- **Extended Warmup**: 50-100 steps for stable convergence
+- **Better Regularization**: Proper weight decay and dropout
 - **Longer Context**: 768 tokens vs 512 for better understanding
 - **Conversation Memory**: Interactive testing remembers conversation history
-- **Better Data Processing**: Enhanced filtering and preprocessing
 
-### Robust Environment Management
+### 🔧 Robust Environment Management
 - **Advanced Virtual Environment Cleanup**: Handles stubborn files and process locks
 - **Cross-Platform Compatibility**: Works on Windows, Linux, and macOS
 - **Process Management**: Automatic cleanup of conflicting Python processes

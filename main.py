@@ -45,6 +45,96 @@ from check_gpu import check_gpu
 from upload_model import upload_model_to_hf
 from upload_dataset import upload_dataset_to_hf
 
+# =============================================================================
+# SECURITY FUNCTIONS
+# =============================================================================
+
+def validate_auth_token(token):
+    """Validate token format and basic structure"""
+    if not token or not isinstance(token, str):
+        return False
+    if not token.startswith('hf_'):
+        return False
+    if len(token) < 20:  # HF tokens are longer
+        return False
+    return True
+
+def handle_error_menu():
+    """Secure error handling menu for model loading failures"""
+    print("\n[ERROR] Model Loading Failed!")
+    print("\nAvailable options:")
+    print("  1. Retry with smaller model")
+    print("  2. Switch to CPU mode")
+    print("  3. Exit training")
+    
+    import sys
+    if sys.stdin.isatty():
+        try:
+            choice = input("\nSelect option (1-3) [3]: ").strip()
+            if not choice:
+                choice = '3'
+            
+            if choice == '1':
+                print("[INFO] Switching to smaller model...")
+                return "restart"
+            elif choice == '2':
+                print("[INFO] Switching to CPU mode...")
+                return True
+            elif choice == '3':
+                print("[INFO] Exiting training...")
+                return False
+            else:
+                print("[INFO] Invalid choice, exiting...")
+                return False
+        except (EOFError, KeyboardInterrupt):
+            print("\n[INFO] Exiting training...")
+            return False
+    else:
+        print("[INFO] Non-interactive mode: Exiting training")
+        return False
+
+def secure_training_flow(dataset_dict, auth_token):
+    """Secure implementation that doesn't bypass authorization on connection failure"""
+    if auth_token:
+        # Validate token format first
+        if not validate_auth_token(auth_token):
+            print("[ERROR] Invalid Hugging Face token format")
+            return False
+            
+        # Validate HF connection before training
+        if not check_hf_connection():
+            print("[ERROR] Hugging Face connection failed")
+            print("[SECURITY] Cannot proceed with authenticated operations")
+            
+            # Give user explicit choice instead of automatic bypass
+            import sys
+            if sys.stdin.isatty():
+                choice = input("Continue with local-only training? (y/N): ").strip().lower()
+                if choice != 'y':
+                    print("[INFO] Training cancelled due to connection failure")
+                    return False
+                print("[INFO] User explicitly chose local training")
+            else:
+                print("[ERROR] Non-interactive mode: Cannot proceed without HF connection")
+                return False
+            
+            # Train locally but maintain audit trail
+            train_and_upload_model(dataset_dict, None, "local")
+        else:
+            # Connection successful, proceed with authenticated operations
+            try:
+                username = HfApi(token=auth_token).whoami()["name"]
+                train_and_upload_model(dataset_dict, auth_token, username)
+            except Exception as e:
+                print(f"[ERROR] Authentication failed: {e}")
+                print("[SECURITY] Cannot proceed with invalid token")
+                return False
+    else:
+        print("[INFO] No authentication token provided - local training only")
+        train_and_upload_model(dataset_dict, None, "local")
+    
+    return True
+
 # Optional PEFT (Parameter Efficient Fine-Tuning) support
 try:
     from peft import LoraConfig, get_peft_model, TaskType
@@ -261,7 +351,7 @@ def prompt_engineered_api(text: str, provider: str = "ollama", model: str = None
     
     response = call_ai(prompt, provider, model)
     
-    # Enhanced response validation
+    # Enhanced response validation and quality improvement
     if response and "### Human:" in response and "### Assistant:" in response:
         assistant_part = response.split("### Assistant:")[-1].strip()
         
@@ -290,7 +380,32 @@ def prompt_engineered_api(text: str, provider: str = "ollama", model: str = None
                 else:
                     logging.warning("Retry still produced short answer")
     
+    # Post-process to fix common technical issues
+    if response:
+        response = clean_technical_response(response)
+    
     return response
+
+def clean_technical_response(response: str) -> str:
+    """
+    Clean and improve technical accuracy in responses.
+    """
+    import re
+    
+    # Fix common JVM parameter issues
+    response = re.sub(r'-XX:\+Use\s+java/heap-gc=', '-XX:+UseG1GC', response)
+    response = re.sub(r'-Xmx(\d+)([^g|m])', r'-Xmx\1g', response)
+    response = re.sub(r'-Xms(\d+)([^g|m])', r'-Xms\1m', response)
+    
+    # Fix tool commands
+    response = re.sub(r'jstack\s+<pid>', 'jstack <pid>', response)
+    response = re.sub(r'jmap\s+-dump[^,]*,file=([^,\s]+)', r'jmap -dump:format=b,file=\1.hprof', response)
+    
+    # Improve sentence structure
+    response = re.sub(r'\s+', ' ', response)  # Multiple spaces
+    response = re.sub(r'([.!?])\s*([a-z])', r'\1 \2', response)  # Sentence spacing
+    
+    return response.strip()
 
 
 # =============================================================================
@@ -578,8 +693,8 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                 model = AutoModelForCausalLM.from_pretrained(base_model, **config)
                 return model
             
-            # Use unified error handling menu
-            result = handle_training_error_menu(model, base_model, None, None)
+            # Use secure error handling menu
+            result = handle_error_menu()
             
             import sys
             if sys.stdin.isatty():
@@ -803,7 +918,7 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
     # 3.- Missing parameters: No max_grad_norm in several configs(allowsgradientexplosion)
     # 4.- Adafactor optimizer: Can be unstable with certain model architectures
     # 5.- No adam_epsilon: Missing numerical stability parameter
-    # Safe training configuration to prevent segfaults
+    # Enhanced training configuration for better model quality
     base_training_config = {
         'output_dir': model_dir,
         'overwrite_output_dir': True,
@@ -811,60 +926,172 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
         'dataloader_pin_memory': False,
         'dataloader_num_workers': 0,
         'report_to': None,
-        'adam_epsilon': 1e-6,
+        'adam_epsilon': 1e-8,  # Better numerical stability
         'optim': "adamw_torch",
-        'gradient_checkpointing': False,  # Disable to prevent memory issues
+        'gradient_checkpointing': False,
         'save_safetensors': True,
-        'per_device_train_batch_size': 2,  # Larger batch size
-        'gradient_accumulation_steps': 2,  # Fewer accumulation steps
-        'fp16': False,  # Force FP32
+        'per_device_train_batch_size': 1,  # Conservative for stability
+        'gradient_accumulation_steps': 4,  # Better gradient updates
+        'fp16': False,  # Force FP32 for stability
         'use_cpu': False if torch.cuda.is_available() else True
     }
     
+    # Interactive epoch selection
+    def select_epochs():
+        """Interactive epoch selection with model and dataset specific recommendations"""
+        base_model = os.getenv('BASE_MODEL', 'microsoft/DialoGPT-medium')
+        dataset_size = len(train_dataset)
+        
+        print("\n🔄 Training Epochs Selection:")
+        print("\n📊 Model & Dataset Analysis:")
+        print(f"  • Model: {base_model}")
+        print(f"  • Dataset size: {dataset_size} samples")
+        print(f"  • Fine-tuning method: {finetune_method.upper()}")
+        
+        # Calculate recommendations based on model size and dataset
+        if 'small' in base_model.lower():
+            if dataset_size < 100:
+                recommended = "3"  # 8 epochs
+                risk_level = "Low overfitting risk"
+            else:
+                recommended = "2"  # 6 epochs
+                risk_level = "Medium overfitting risk with large dataset"
+        elif 'medium' in base_model.lower():
+            if dataset_size < 150:
+                recommended = "4"  # 10 epochs
+                risk_level = "Low overfitting risk"
+            elif dataset_size < 300:
+                recommended = "3"  # 8 epochs
+                risk_level = "Balanced learning"
+            else:
+                recommended = "2"  # 6 epochs
+                risk_level = "Large dataset - fewer epochs needed"
+        else:  # large model
+            if dataset_size < 200:
+                recommended = "2"  # 6 epochs
+                risk_level = "Small dataset - risk of overfitting"
+            elif dataset_size < 400:
+                recommended = "3"  # 8 epochs
+                risk_level = "Good balance"
+            else:
+                recommended = "4"  # 10 epochs
+                risk_level = "Large dataset - can handle more epochs"
+        
+        print(f"\n⚖️ Risk Assessment: {risk_level}")
+        
+        print("\n🎯 Epoch Options:")
+        print("  1. Quick (3 epochs) - Fast training, basic learning")
+        print("  2. Standard (6 epochs) - Good balance, prevents overfitting")
+        print("  3. Quality (8 epochs) - Better learning, moderate time")
+        print("  4. Thorough (10 epochs) - Deep learning, longer training")
+        print("  5. Intensive (12 epochs) - Maximum learning, high overfitting risk")
+        print("  6. Custom - Enter your own number")
+        
+        # Time estimates
+        base_time = dataset_size // 20  # rough estimate in minutes per epoch
+        print("\n⏱️ Estimated Training Time:")
+        for i, epochs in enumerate([3, 6, 8, 10, 12], 1):
+            total_time = base_time * epochs
+            device_str = "GPU" if torch.cuda.is_available() else "CPU"
+            if not torch.cuda.is_available():
+                total_time *= 3  # CPU is ~3x slower
+            print(f"  {i}. {epochs} epochs: ~{total_time//60}h {total_time%60}m ({device_str})")
+        
+        print(f"\n💡 Recommended: Option {recommended} (based on your model and dataset)")
+        
+        import sys
+        if sys.stdin.isatty():
+            try:
+                choice = input(f"\nSelect epochs (1-6) [{recommended}]: ").strip()
+                if not choice:
+                    choice = recommended
+                
+                if choice == '1':
+                    return 3
+                elif choice == '2':
+                    return 6
+                elif choice == '3':
+                    return 8
+                elif choice == '4':
+                    return 10
+                elif choice == '5':
+                    return 12
+                elif choice == '6':
+                    try:
+                        custom = int(input("Enter custom number of epochs (1-20): "))
+                        if 1 <= custom <= 20:
+                            if custom > 12:
+                                print(f"[WARNING] {custom} epochs is high - watch for overfitting")
+                            return custom
+                        else:
+                            print("[WARNING] Number out of range, using 8")
+                            return 8
+                    except ValueError:
+                        print("[WARNING] Invalid number, using 8")
+                        return 8
+                else:
+                    print(f"[INFO] Invalid choice, using recommended")
+                    return [3, 6, 8, 10, 12][int(recommended)-1]
+            except (EOFError, KeyboardInterrupt):
+                print(f"\n[INFO] Using recommended epochs")
+                return [3, 6, 8, 10, 12][int(recommended)-1]
+        else:
+            # Non-interactive fallback
+            return [3, 6, 8, 10, 12][int(recommended)-1]
+    
+    # Get number of epochs
+    num_epochs = int(os.getenv('NUM_EPOCHS')) if os.getenv('NUM_EPOCHS') else select_epochs()
+    
     if finetune_method == "lora":
-        # LoRA configuration - effective learning
+        # LoRA configuration - parameter efficient with quality focus
         training_args = TrainingArguments(
-            num_train_epochs=5,  # More epochs for LoRA
-            learning_rate=1e-4,  # Standard LoRA learning rate
-            warmup_steps=20,
+            num_train_epochs=num_epochs,
+            learning_rate=5e-5,  # Proper LoRA learning rate (not 3e-4!)
+            warmup_steps=50,     # More warmup for stability
             logging_steps=10,
             save_steps=50,
             eval_strategy="steps",
             eval_steps=50,
-            save_total_limit=1,
-            max_grad_norm=1.0,  # Standard gradient clipping
+            save_total_limit=2,
+            max_grad_norm=0.5,   # Conservative gradient clipping
+            weight_decay=0.05,   # Regularization
             **base_training_config
         )
     else:
-        # Optimized full fine-tuning for better response quality
+        # Enhanced full fine-tuning for superior response quality
         if device_config['device_type'] == 'gpu':
-            # GPU training - balanced approach for quality responses
+            # GPU training - optimized for quality with larger datasets
             training_args = TrainingArguments(
-                num_train_epochs=6,  # Sufficient epochs for learning without overfitting
-                learning_rate=2e-5,  # Conservative learning rate for stability
-                warmup_steps=20,     # Proper warmup for stable training
+                num_train_epochs=num_epochs,
+                learning_rate=1e-5,  # Lower learning rate for large models
+                warmup_steps=100,    # Extensive warmup for stability
                 logging_steps=5,
                 save_steps=25,
-                eval_strategy="no",
-                save_total_limit=1,
-                max_grad_norm=1.0,   # Standard gradient clipping
+                eval_strategy="steps" if len(dataset_dict['test']) > 0 else "no",
+                eval_steps=25,
+                save_total_limit=2,
+                max_grad_norm=0.3,   # Conservative gradient clipping
                 weight_decay=0.01,   # Proper regularization
                 **base_training_config
             )
         else:
-            # CPU training - effective configuration
+            # CPU training - effective configuration with quality focus
             training_args = TrainingArguments(
-                num_train_epochs=2,  # More epochs for CPU
-                learning_rate=2e-5,  # Higher learning rate for CPU
-                warmup_steps=20,
+                num_train_epochs=max(4, num_epochs // 2),  # Fewer epochs for CPU
+                learning_rate=2e-5,  # Slightly higher for CPU
+                warmup_steps=50,
                 logging_steps=20,
                 save_steps=100,
                 eval_strategy="steps",
                 eval_steps=100,
                 save_total_limit=1,
-                max_grad_norm=0.5,  # Moderate gradient clipping
+                max_grad_norm=0.5,
                 **base_training_config
             )
+    
+    print(f"[INFO] Training epochs: {training_args.num_train_epochs}")
+    print(f"[INFO] Learning rate: {training_args.learning_rate}")
+    print(f"[INFO] Batch size: {training_args.per_device_train_batch_size}")
     # Data collator for causal language modeling
     data_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
@@ -1183,10 +1410,19 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                         elif choice == '4':
                             print("[INFO] Running GPU cleanup utility...")
                             import subprocess
+                            import sys
                             try:
-                                subprocess.run(["python", "gpu_cleanup.py"], check=True)
-                            except:
-                                print("[ERROR] Could not run gpu_cleanup.py")
+                                # Secure subprocess call with explicit arguments and shell=False
+                                subprocess.run([sys.executable, "gpu_cleanup.py"], check=True, shell=False, timeout=30)
+                            except subprocess.TimeoutExpired:
+                                print("[ERROR] GPU cleanup timed out after 30 seconds")
+                            except subprocess.CalledProcessError as e:
+                                print(f"[ERROR] GPU cleanup failed with exit code {e.returncode}")
+                            except FileNotFoundError:
+                                print("[ERROR] gpu_cleanup.py not found")
+                                print("[TIP] Ensure gpu_cleanup.py exists in current directory")
+                            except Exception as e:
+                                print(f"[ERROR] Could not run gpu_cleanup.py: {e}")
                                 print("[TIP] Run manually: python gpu_cleanup.py")
                             continue  # Go back to options
                             
@@ -1228,11 +1464,27 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
                                     if test_choice == '1':
                                         print("[INFO] Starting interactive testing...")
                                         import subprocess
-                                        subprocess.run(["python", "test_model.py"])
+                                        import sys
+                                        try:
+                                            subprocess.run([sys.executable, "test_model.py"], check=False, shell=False, timeout=300)
+                                        except subprocess.TimeoutExpired:
+                                            print("[WARNING] Interactive testing timed out after 5 minutes")
+                                        except FileNotFoundError:
+                                            print("[ERROR] test_model.py not found")
+                                        except Exception as e:
+                                            print(f"[ERROR] Failed to start interactive testing: {e}")
                                     elif test_choice == '2':
                                         print("[INFO] Starting quick batch testing...")
                                         import subprocess
-                                        subprocess.run(["python", "quick_test.py"])
+                                        import sys
+                                        try:
+                                            subprocess.run([sys.executable, "quick_test.py"], check=False, shell=False, timeout=120)
+                                        except subprocess.TimeoutExpired:
+                                            print("[WARNING] Quick testing timed out after 2 minutes")
+                                        except FileNotFoundError:
+                                            print("[ERROR] quick_test.py not found")
+                                        except Exception as e:
+                                            print(f"[ERROR] Failed to start quick testing: {e}")
                                     elif test_choice == '3':
                                         print("[INFO] Skipping testing")
                                     
@@ -1508,8 +1760,13 @@ def main():
                     try:
                         inspect_choice = input("\nRun detailed dataset inspection? (y/n) [n]: ").strip().lower()
                         if inspect_choice == 'y':
-                            from inspect_dataset import inspect_dataset
-                            inspect_dataset()
+                            try:
+                                from inspect_dataset import inspect_dataset
+                                inspect_dataset()
+                            except ImportError:
+                                print("[ERROR] inspect_dataset module not found")
+                            except Exception as e:
+                                print(f"[ERROR] Failed to run dataset inspection: {e}")
                     except (EOFError, KeyboardInterrupt):
                         pass
         except Exception as e:
@@ -1531,27 +1788,255 @@ def main():
             print(f"[ERROR] Failed to extract PDF content: {e}")
             return
         
-        # Step 2: Generate Q&A pairs
+        # Step 2: Generate Q&A pairs with improved quality
         print("[INFO] Generating question-answer pairs using AI...")
         qa_pairs = []
         
+        # Optimal configuration presets
+        def get_optimal_presets():
+            """Get optimal configuration presets for different scenarios"""
+            return {
+                'premium_gpu': {
+                    'name': 'Premium Quality (GPU)',
+                    'base_model': 'microsoft/DialoGPT-large',
+                    'examples': 500,
+                    'epochs': 10,
+                    'method': 'full',
+                    'description': 'Best quality, requires 8GB+ VRAM, 3-5 hours'
+                },
+                'balanced_gpu': {
+                    'name': 'Balanced Performance (GPU)',
+                    'base_model': 'microsoft/DialoGPT-medium',
+                    'examples': 200,
+                    'epochs': 8,
+                    'method': 'full',
+                    'description': 'Good quality, requires 4GB+ VRAM, 1-3 hours'
+                },
+                'fast_gpu': {
+                    'name': 'Fast Training (GPU)',
+                    'base_model': 'microsoft/DialoGPT-small',
+                    'examples': 100,
+                    'epochs': 6,
+                    'method': 'full',
+                    'description': 'Quick results, requires 2GB+ VRAM, 30-90 min'
+                },
+                'efficient_lora': {
+                    'name': 'Memory Efficient (LoRA)',
+                    'base_model': 'microsoft/DialoGPT-medium',
+                    'examples': 300,
+                    'epochs': 8,
+                    'method': 'lora',
+                    'description': 'Parameter efficient, any GPU, 1-2 hours'
+                },
+                'cpu_optimized': {
+                    'name': 'CPU Optimized',
+                    'base_model': 'microsoft/DialoGPT-small',
+                    'examples': 100,
+                    'epochs': 4,
+                    'method': 'lora',
+                    'description': 'CPU training, no GPU required, 2-4 hours'
+                }
+            }
+        
+        # Interactive dataset size selection
+        def select_dataset_size():
+            """Interactive dataset size selection with model-specific recommendations"""
+            base_model = os.getenv('BASE_MODEL', 'microsoft/DialoGPT-medium')
+            
+            # Show optimal presets first
+            presets = get_optimal_presets()
+            print("\n🎯 Optimal Configuration Presets:")
+            
+            has_gpu = torch.cuda.is_available()
+            if has_gpu:
+                gpu_mem = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                print(f"\n💾 Your GPU: {torch.cuda.get_device_name(0)} ({gpu_mem:.1f}GB)")
+            else:
+                print("\n💻 CPU Mode Detected")
+            
+            print("\n📋 Recommended Presets:")
+            preset_keys = []
+            
+            if has_gpu and gpu_mem >= 8:
+                preset_keys.append('premium_gpu')
+                print(f"  P1. {presets['premium_gpu']['name']} - {presets['premium_gpu']['description']}")
+            
+            if has_gpu and gpu_mem >= 4:
+                preset_keys.append('balanced_gpu')
+                print(f"  P{len(preset_keys)}. {presets['balanced_gpu']['name']} - {presets['balanced_gpu']['description']}")
+            
+            if has_gpu:
+                preset_keys.append('fast_gpu')
+                print(f"  P{len(preset_keys)}. {presets['fast_gpu']['name']} - {presets['fast_gpu']['description']}")
+                
+                preset_keys.append('efficient_lora')
+                print(f"  P{len(preset_keys)}. {presets['efficient_lora']['name']} - {presets['efficient_lora']['description']}")
+            
+            preset_keys.append('cpu_optimized')
+            print(f"  P{len(preset_keys)}. {presets['cpu_optimized']['name']} - {presets['cpu_optimized']['description']}")
+            
+            print("\n📊 Manual Dataset Size Selection:")
+            print("\n🎯 Model-Specific Recommendations:")
+            
+            if 'small' in base_model.lower():
+                print("  • DialoGPT-small (117M params): 50-200 examples optimal")
+                print("  • Risk: >200 examples may cause overfitting")
+                recommended = "2"
+            elif 'medium' in base_model.lower():
+                print("  • DialoGPT-medium (345M params): 100-400 examples optimal")
+                print("  • Sweet spot: 200-300 examples for best quality")
+                recommended = "3"
+            elif 'large' in base_model.lower():
+                print("  • DialoGPT-large (774M params): 300-800 examples optimal")
+                print("  • Best results: 500+ examples for full potential")
+                recommended = "4"
+            else:
+                print("  • Unknown model: Using medium model recommendations")
+                recommended = "3"
+            
+            print("\n📈 Dataset Size Options:")
+            print("  1. Quick (50 examples) - Fast generation, basic quality")
+            print("  2. Standard (100 examples) - Good balance, 15-30 min generation")
+            print("  3. Quality (200 examples) - Better responses, 30-60 min generation")
+            print("  4. Premium (500 examples) - Best quality, 1-2 hours generation")
+            print("  5. Maximum (800 examples) - Experimental, 2-3 hours generation")
+            print("  6. Custom - Enter your own number")
+            
+            print(f"\n💡 Recommended for {base_model}: Option {recommended}")
+            
+            import sys
+            if sys.stdin.isatty():
+                try:
+                    print(f"\nChoose configuration:")
+                    print(f"  Presets: P1-P{len(preset_keys)} (optimal configurations)")
+                    print(f"  Manual: 1-6 (custom dataset size only)")
+                    
+                    choice = input(f"\nSelect option (P1-P{len(preset_keys)} or 1-6) [P1]: ").strip().upper()
+                    if not choice:
+                        choice = 'P1'
+                    
+                    # Handle preset selections
+                    if choice.startswith('P'):
+                        try:
+                            preset_idx = int(choice[1:]) - 1
+                            if 0 <= preset_idx < len(preset_keys):
+                                preset = presets[preset_keys[preset_idx]]
+                                print(f"\n✅ Selected: {preset['name']}")
+                                print(f"   Model: {preset['base_model']}")
+                                print(f"   Examples: {preset['examples']}")
+                                print(f"   Epochs: {preset['epochs']}")
+                                print(f"   Method: {preset['method'].upper()}")
+                                
+                                # Apply preset configuration
+                                os.environ['BASE_MODEL'] = preset['base_model']
+                                os.environ['NUM_EPOCHS'] = str(preset['epochs'])
+                                os.environ['FINETUNE_METHOD'] = preset['method']
+                                
+                                return preset['examples']
+                            else:
+                                print("[WARNING] Invalid preset, using P1")
+                                preset = presets[preset_keys[0]]
+                                os.environ['BASE_MODEL'] = preset['base_model']
+                                os.environ['NUM_EPOCHS'] = str(preset['epochs'])
+                                os.environ['FINETUNE_METHOD'] = preset['method']
+                                return preset['examples']
+                        except (ValueError, IndexError):
+                            print("[WARNING] Invalid preset format, using P1")
+                            preset = presets[preset_keys[0]]
+                            os.environ['BASE_MODEL'] = preset['base_model']
+                            os.environ['NUM_EPOCHS'] = str(preset['epochs'])
+                            os.environ['FINETUNE_METHOD'] = preset['method']
+                            return preset['examples']
+                    
+                    # Handle manual selections
+                    elif choice == '1':
+                        return 50
+                    elif choice == '2':
+                        return 100
+                    elif choice == '3':
+                        return 200
+                    elif choice == '4':
+                        return 500
+                    elif choice == '5':
+                        return 800
+                    elif choice == '6':
+                        try:
+                            custom = int(input("Enter custom number of examples (10-1000): "))
+                            if 10 <= custom <= 1000:
+                                return custom
+                            else:
+                                print("[WARNING] Number out of range, using 200")
+                                return 200
+                        except ValueError:
+                            print("[WARNING] Invalid number, using 200")
+                            return 200
+                    else:
+                        print(f"[INFO] Invalid choice, using P1")
+                        preset = presets[preset_keys[0]]
+                        os.environ['BASE_MODEL'] = preset['base_model']
+                        os.environ['NUM_EPOCHS'] = str(preset['epochs'])
+                        os.environ['FINETUNE_METHOD'] = preset['method']
+                        return preset['examples']
+                        
+                except (EOFError, KeyboardInterrupt):
+                    print(f"\n[INFO] Using default preset P1")
+                    preset = presets[preset_keys[0]]
+                    os.environ['BASE_MODEL'] = preset['base_model']
+                    os.environ['NUM_EPOCHS'] = str(preset['epochs'])
+                    os.environ['FINETUNE_METHOD'] = preset['method']
+                    return preset['examples']
+            else:
+                # Non-interactive fallback - use best preset for hardware
+                preset = presets[preset_keys[0]]
+                os.environ['BASE_MODEL'] = preset['base_model']
+                os.environ['NUM_EPOCHS'] = str(preset['epochs'])
+                os.environ['FINETUNE_METHOD'] = preset['method']
+                return preset['examples']
+        
+        # Get target number of examples
+        max_examples = int(os.getenv('MAX_EXAMPLES')) if os.getenv('MAX_EXAMPLES') else select_dataset_size()
+        print(f"\n[INFO] Target examples: {max_examples}")
+        print(f"[INFO] Estimated generation time: {max_examples // 10}-{max_examples // 5} minutes")
+        
+        # Generate multiple Q&A pairs per page for better coverage
+        examples_per_page = max(1, max_examples // len(content_list))
+        
         # Process each page with progress tracking
         for i, content in enumerate(tqdm(content_list, desc="Generating Q&A")):
-            if content.strip():  # Skip empty pages
-                try:
-                    qa_response = prompt_engineered_api(content, ai_provider, ai_model)
-                    
-                    # Validate Q&A format
-                    if (qa_response and 
-                        "### Human:" in qa_response and 
-                        "### Assistant:" in qa_response):
-                        qa_pairs.append(qa_response)
-                        logging.debug(f"Generated Q&A for page {i+1}")
-                    else:
-                        logging.warning(f"Invalid Q&A format for page {i+1}")
+            if content.strip() and len(qa_pairs) < max_examples:  # Skip empty pages
+                # Generate multiple examples per page for richer dataset
+                for attempt in range(examples_per_page):
+                    if len(qa_pairs) >= max_examples:
+                        break
                         
-                except Exception as e:
-                    logging.error(f"Failed to generate Q&A for page {i+1}: {e}")
+                    try:
+                        qa_response = prompt_engineered_api(content, ai_provider, ai_model)
+                        
+                        # Enhanced validation
+                        if (qa_response and 
+                            "### Human:" in qa_response and 
+                            "### Assistant:" in qa_response):
+                            
+                            # Check for duplicates
+                            if qa_response not in qa_pairs:
+                                qa_pairs.append(qa_response)
+                                logging.debug(f"Generated Q&A {len(qa_pairs)} for page {i+1}")
+                            else:
+                                logging.debug(f"Duplicate Q&A skipped for page {i+1}")
+                        else:
+                            logging.warning(f"Invalid Q&A format for page {i+1}, attempt {attempt+1}")
+                            
+                    except Exception as e:
+                        logging.error(f"Failed to generate Q&A for page {i+1}, attempt {attempt+1}: {e}")
+        
+        print(f"[INFO] Generated {len(qa_pairs)} Q&A pairs (target: {max_examples})")
+        
+        # Dataset size analysis
+        if len(qa_pairs) < max_examples * 0.8:
+            print(f"[WARNING] Generated fewer examples than target ({len(qa_pairs)}/{max_examples})")
+            print(f"[INFO] This may be due to content limitations or AI service issues")
+        elif len(qa_pairs) >= max_examples:
+            print(f"[SUCCESS] ✅ Target dataset size achieved - excellent for training quality")
         
         # Validate we have sufficient data
         if not qa_pairs:
@@ -1657,7 +2142,15 @@ def main():
                     if inspect_choice == 'y':
                         print("[INFO] Running detailed inspection...")
                         import subprocess
-                        subprocess.run(["python", "inspect_dataset.py"])
+                        import sys
+                        try:
+                            subprocess.run([sys.executable, "inspect_dataset.py"], check=False, shell=False, timeout=60)
+                        except subprocess.TimeoutExpired:
+                            print("[WARNING] Dataset inspection timed out after 1 minute")
+                        except FileNotFoundError:
+                            print("[ERROR] inspect_dataset.py not found")
+                        except Exception as e:
+                            print(f"[ERROR] Failed to run dataset inspection: {e}")
                 except (EOFError, KeyboardInterrupt):
                     pass
             
@@ -1697,23 +2190,10 @@ def main():
         # Show GPU info before training
         check_gpu()
         
-        if auth_token:
-            # Validate HF connection before training
-            if not check_hf_connection():
-                print("[ERROR] Hugging Face connection failed - training locally only")
-                auth_token = None
-                train_and_upload_model(dataset_dict, None, "local")
-            else:
-                try:
-                    username = HfApi(token=auth_token).whoami()["name"]
-                    train_and_upload_model(dataset_dict, auth_token, username)
-                except Exception as e:
-                    print(f"[ERROR] Failed to get username from token: {e}")
-                    print("[INFO] Training locally without upload...")
-                    train_and_upload_model(dataset_dict, None, "local")
-        else:
-            print("[INFO] Training locally (no Hugging Face token provided)")
-            train_and_upload_model(dataset_dict, None, "local")
+        # Use secure training flow instead of vulnerable logic
+        if not secure_training_flow(dataset_dict, auth_token):
+            print("[ERROR] Training failed due to security or authentication issues")
+            return
     else:
         print("[INFO] Model training skipped")
         print("[INFO] To enable training, set TRAIN_MODEL=true in .env file")
@@ -1749,11 +2229,27 @@ def main():
                 if choice == '1':
                     print("🚀 Starting interactive testing...")
                     import subprocess
-                    subprocess.run(["python", "test_model.py"])
+                    import sys
+                    try:
+                        subprocess.run([sys.executable, "test_model.py"], check=False, shell=False, timeout=300)
+                    except subprocess.TimeoutExpired:
+                        print("[WARNING] Interactive testing timed out after 5 minutes")
+                    except FileNotFoundError:
+                        print("[ERROR] test_model.py not found")
+                    except Exception as e:
+                        print(f"[ERROR] Failed to start interactive testing: {e}")
                 elif choice == '2':
                     print("🚀 Running quick batch validation...")
                     import subprocess
-                    subprocess.run(["python", "quick_test.py"])
+                    import sys
+                    try:
+                        subprocess.run([sys.executable, "quick_test.py"], check=False, shell=False, timeout=120)
+                    except subprocess.TimeoutExpired:
+                        print("[WARNING] Quick testing timed out after 2 minutes")
+                    except FileNotFoundError:
+                        print("[ERROR] quick_test.py not found")
+                    except Exception as e:
+                        print(f"[ERROR] Failed to start quick testing: {e}")
                 elif choice == '3':
                     print("⏭️ Skipping testing")
                 else:
