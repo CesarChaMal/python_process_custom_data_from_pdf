@@ -318,12 +318,90 @@ Optimal training epochs based on model and dataset size:
 
 **Smart Recommendations**: The system analyzes your hardware, model choice, and dataset size to provide optimal suggestions with overfitting risk assessment.
 
+## Interactive Pipeline Flow
+
+When you run the pipeline, you'll encounter **two main interactive prompts** at different stages:
+
+### 🎯 Stage 1: Dataset Size Selection (During PDF Processing)
+**When**: After PDF text extraction begins
+**What you'll see**:
+```
+🎯 Optimal Configuration Presets:
+💾 Your GPU: [GPU Name] ([Memory]GB)
+
+📋 Recommended Presets:
+  P1. Premium Quality (GPU) - Best quality, requires 8GB+ VRAM, 3-5 hours
+  P2. Balanced Performance (GPU) - Good quality, requires 4GB+ VRAM, 1-3 hours
+  P3. Fast Training (GPU) - Quick results, requires 2GB+ VRAM, 30-90 min
+  P4. Memory Efficient (LoRA) - Parameter efficient, any GPU, 1-2 hours
+  P5. CPU Optimized - CPU training, no GPU required, 2-4 hours
+
+📊 Manual Dataset Size Selection:
+  1. Quick (50 examples) - Fast generation, basic quality
+  2. Standard (100 examples) - Good balance, 15-30 min generation
+  3. Quality (200 examples) - Better responses, 30-60 min generation
+  4. Premium (500 examples) - Best quality, 1-2 hours generation
+  5. Maximum (800 examples) - Experimental, 2-3 hours generation
+  6. Custom - Enter your own number
+
+Choose configuration: Presets: P1-P5 (optimal) or Manual: 1-6 [P1]:
+```
+
+### 🔄 Stage 2: Epochs Selection (During Model Training Setup)
+**When**: After dataset creation, before training begins
+**What you'll see**:
+```
+🔄 Training Epochs Selection:
+
+📊 Model & Dataset Analysis:
+  • Model: microsoft/DialoGPT-large
+  • Dataset size: 200 samples
+  • Fine-tuning method: FULL
+
+⚖️ Risk Assessment: Balanced learning
+
+🎯 Epoch Options:
+  1. Quick (3 epochs) - Fast training, basic learning
+  2. Standard (6 epochs) - Good balance, prevents overfitting
+  3. Quality (8 epochs) - Better learning, moderate time
+  4. Thorough (10 epochs) - Deep learning, longer training
+  5. Intensive (12 epochs) - Maximum learning, high overfitting risk
+  6. Custom - Enter your own number
+
+⏱️ Estimated Training Time:
+  1. 3 epochs: ~0h 30m (GPU)
+  2. 6 epochs: ~1h 0m (GPU)
+  3. 8 epochs: ~1h 20m (GPU)
+  4. 10 epochs: ~1h 40m (GPU)
+  5. 12 epochs: ~2h 0m (GPU)
+
+💡 Recommended: Option 3 (based on your model and dataset)
+Select epochs (1-6) [3]:
+```
+
+### ⏱️ Timeline Overview
+1. **Initial Setup** (run.sh configuration) - Already completed
+2. **PDF Processing** → **Dataset Size Prompt** ← *You are here next*
+3. **Q&A Generation** (5-120 minutes depending on size)
+4. **Model Training Setup** → **Epochs Prompt**
+5. **Model Training** (30 minutes - 5 hours)
+6. **Testing & Completion**
+
+### 🚀 Skip Interactive Prompts
+To avoid prompts in future runs, pre-configure in `.env`:
+```bash
+MAX_EXAMPLES=200     # Skip dataset size selection
+NUM_EPOCHS=8         # Skip epochs selection
+BASE_MODEL=microsoft/DialoGPT-medium  # Skip model selection
+```
+
 ## Usage Steps
 
 1. **Place PDF**: Add your PDF file as `jvm_troubleshooting_guide.pdf`
 2. **Configure**: Set up `.env` with your AI provider and tokens
 3. **Run**: Execute `./run.sh` (Linux/Mac) or `run.bat` (Windows)
-4. **Output**: Dataset generated locally and optionally uploaded to Hugging Face
+4. **Interactive Prompts**: Choose dataset size and training epochs when prompted
+5. **Output**: Dataset generated locally and optionally uploaded to Hugging Face
 
 ## Output
 

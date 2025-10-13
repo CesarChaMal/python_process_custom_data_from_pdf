@@ -145,6 +145,38 @@ except ImportError:
 # Load environment variables from .env file
 load_dotenv()
 
+# =============================================================================
+# ENVIRONMENT CONFIGURATION FUNCTIONS
+# =============================================================================
+
+def update_env_file(key, value):
+    """Update or add a key-value pair in the .env file"""
+    env_path = '.env'
+    
+    # Read existing content
+    lines = []
+    if os.path.exists(env_path):
+        with open(env_path, 'r') as f:
+            lines = f.readlines()
+    
+    # Update or add the key
+    key_found = False
+    for i, line in enumerate(lines):
+        if line.strip().startswith(f'{key}='):
+            lines[i] = f'{key}={value}\n'
+            key_found = True
+            break
+    
+    if not key_found:
+        lines.append(f'{key}={value}\n')
+    
+    # Write back to file
+    with open(env_path, 'w') as f:
+        f.writelines(lines)
+    
+    # Update current environment
+    os.environ[key] = str(value)
+
 # Configure logging for debugging and monitoring
 logging.basicConfig(
     level=logging.DEBUG, 
@@ -1039,8 +1071,10 @@ def train_and_upload_model(dataset_dict: DatasetDict, auth_token: str, username:
             # Non-interactive fallback
             return [3, 6, 8, 10, 12][int(recommended)-1]
     
-    # Get number of epochs
-    num_epochs = int(os.getenv('NUM_EPOCHS')) if os.getenv('NUM_EPOCHS') else select_epochs()
+    # Get number of epochs - always show interactive prompt but save choice
+    num_epochs = select_epochs()
+    # Save user's choice to .env file for future reference
+    update_env_file('NUM_EPOCHS', num_epochs)
     
     if finetune_method == "lora":
         # LoRA configuration - parameter efficient with quality focus
@@ -1927,25 +1961,25 @@ def main():
                                 print(f"   Epochs: {preset['epochs']}")
                                 print(f"   Method: {preset['method'].upper()}")
                                 
-                                # Apply preset configuration
-                                os.environ['BASE_MODEL'] = preset['base_model']
-                                os.environ['NUM_EPOCHS'] = str(preset['epochs'])
-                                os.environ['FINETUNE_METHOD'] = preset['method']
+                                # Apply preset configuration and save to .env
+                                update_env_file('BASE_MODEL', preset['base_model'])
+                                update_env_file('NUM_EPOCHS', preset['epochs'])
+                                update_env_file('FINETUNE_METHOD', preset['method'])
                                 
                                 return preset['examples']
                             else:
                                 print("[WARNING] Invalid preset, using P1")
                                 preset = presets[preset_keys[0]]
-                                os.environ['BASE_MODEL'] = preset['base_model']
-                                os.environ['NUM_EPOCHS'] = str(preset['epochs'])
-                                os.environ['FINETUNE_METHOD'] = preset['method']
+                                update_env_file('BASE_MODEL', preset['base_model'])
+                                update_env_file('NUM_EPOCHS', preset['epochs'])
+                                update_env_file('FINETUNE_METHOD', preset['method'])
                                 return preset['examples']
                         except (ValueError, IndexError):
                             print("[WARNING] Invalid preset format, using P1")
                             preset = presets[preset_keys[0]]
-                            os.environ['BASE_MODEL'] = preset['base_model']
-                            os.environ['NUM_EPOCHS'] = str(preset['epochs'])
-                            os.environ['FINETUNE_METHOD'] = preset['method']
+                            update_env_file('BASE_MODEL', preset['base_model'])
+                            update_env_file('NUM_EPOCHS', preset['epochs'])
+                            update_env_file('FINETUNE_METHOD', preset['method'])
                             return preset['examples']
                     
                     # Handle manual selections
@@ -1981,20 +2015,22 @@ def main():
                 except (EOFError, KeyboardInterrupt):
                     print(f"\n[INFO] Using default preset P1")
                     preset = presets[preset_keys[0]]
-                    os.environ['BASE_MODEL'] = preset['base_model']
-                    os.environ['NUM_EPOCHS'] = str(preset['epochs'])
-                    os.environ['FINETUNE_METHOD'] = preset['method']
+                    update_env_file('BASE_MODEL', preset['base_model'])
+                    update_env_file('NUM_EPOCHS', preset['epochs'])
+                    update_env_file('FINETUNE_METHOD', preset['method'])
                     return preset['examples']
             else:
                 # Non-interactive fallback - use best preset for hardware
                 preset = presets[preset_keys[0]]
-                os.environ['BASE_MODEL'] = preset['base_model']
-                os.environ['NUM_EPOCHS'] = str(preset['epochs'])
-                os.environ['FINETUNE_METHOD'] = preset['method']
+                update_env_file('BASE_MODEL', preset['base_model'])
+                update_env_file('NUM_EPOCHS', preset['epochs'])
+                update_env_file('FINETUNE_METHOD', preset['method'])
                 return preset['examples']
         
-        # Get target number of examples
-        max_examples = int(os.getenv('MAX_EXAMPLES')) if os.getenv('MAX_EXAMPLES') else select_dataset_size()
+        # Get target number of examples - always show interactive prompt but save choice
+        max_examples = select_dataset_size()
+        # Save user's choice to .env file for future reference
+        update_env_file('MAX_EXAMPLES', max_examples)
         print(f"\n[INFO] Target examples: {max_examples}")
         print(f"[INFO] Estimated generation time: {max_examples // 10}-{max_examples // 5} minutes")
         
